@@ -1,0 +1,103 @@
+{
+  "users": {
+    "william": {
+      "name": "William",
+      "password": "c1db9589a976236282208c4410ef60c46aa12c8fffa6ebd0fda74bddb624f992",
+      "contacts": [
+        "Elliot",
+        "Calvin"
+      ],
+      "createdAt": 1768111741965
+    },
+    "elliot": {
+      "name": "Elliot",
+      "password": "e915d15c455192126299c33ccb947eb13c5f36919af6ed2596bd8311d335a712",
+      "contacts": [
+        "William",
+        "Calvin"
+      ],
+      "createdAt": 1768111763557
+    },
+    "calvin": {
+      "name": "Calvin",
+      "password": "3f62863a2869f720096aeced0c51a7c95ea9e49dc6ecdfd9b4e3333d562a4eb9",
+      "contacts": [
+        "William",
+        "Elliot"
+      ],
+      "createdAt": 1768111796147
+    }
+  },
+  "messages": {
+    "group_1768111859508": [
+      {
+        "text": "hi guys",
+        "sent": true,
+        "time": "10:11 PM",
+        "sender": "William"
+      },
+      {
+        "text": "wassup",
+        "sent": true,
+        "time": "10:11 PM",
+        "sender": "Elliot"
+      },
+      {
+        "text": "hi",
+        "sent": true,
+        "time": "10:11 PM",
+        "sender": "Calvin"
+      },
+      {
+        "text": "hiu",
+        "sent": true,
+        "time": "10:11 PM",
+        "sender": "William"
+      }
+    ],
+    "dm_elliot_william": [
+      {
+        "text": "wassup my mans",
+        "sent": true,
+        "time": "10:11 PM",
+        "sender": "William"
+      },
+      {
+        "text": "wassup?",
+        "sent": true,
+        "time": "01:23 PM",
+        "sender": "William"
+      },
+      {
+        "text": "how youy doning?",
+        "sent": true,
+        "time": "01:23 PM",
+        "sender": "Elliot"
+      },
+      {
+        "text": "hehehehehe....",
+        "sent": true,
+        "time": "01:23 PM",
+        "sender": "William"
+      },
+      {
+        "text": "hi?",
+        "sent": true,
+        "time": "01:24 PM",
+        "sender": "William"
+      }
+    ]
+  },
+  "groups": {
+    "1768111859508": {
+      "id": "1768111859508",
+      "name": "the bois",
+      "creator": "William",
+      "members": [
+        "William",
+        "Elliot",
+        "Calvin"
+      ]
+    }
+  }
+}

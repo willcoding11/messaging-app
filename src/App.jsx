@@ -1,0 +1,441 @@
+import { useState, useEffect, useRef } from 'react';
+import { io } from 'socket.io-client';
+
+// In production, connect to same origin. In dev, connect to port 3001
+const isDev = window.location.port === '3000';
+const serverUrl = isDev ? `http://${window.location.hostname}:3001` : undefined;
+const socket = io(serverUrl);
+
+function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authMode, setAuthMode] = useState('login'); // 'login' or 'register'
+  const [userName, setUserName] = useState('');
+  const [nameInput, setNameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [contacts, setContacts] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [messages, setMessages] = useState({});
+  const [currentChat, setCurrentChat] = useState(null);
+  const [currentTab, setCurrentTab] = useState('contacts');
+  const [messageInput, setMessageInput] = useState('');
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [newContactName, setNewContactName] = useState('');
+  const [newGroupName, setNewGroupName] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState([]);
+  const [contactError, setContactError] = useState('');
+  const messagesEndRef = useRef(null);
+
+  // Socket event listeners
+  useEffect(() => {
+    socket.on('userOnline', ({ name }) => {
+      setContacts(prev => prev.map(c =>
+        c.name.toLowerCase() === name.toLowerCase() ? { ...c, online: true } : c
+      ));
+    });
+
+    socket.on('userOffline', ({ name }) => {
+      setContacts(prev => prev.map(c =>
+        c.name.toLowerCase() === name.toLowerCase() ? { ...c, online: false } : c
+      ));
+    });
+
+    socket.on('newMessage', ({ chatId, message }) => {
+      setMessages(prev => ({
+        ...prev,
+        [chatId]: [...(prev[chatId] || []), message]
+      }));
+    });
+
+    socket.on('contactAdded', (contact) => {
+      setContacts(prev => {
+        if (prev.some(c => c.name.toLowerCase() === contact.name.toLowerCase())) return prev;
+        return [...prev, contact];
+      });
+    });
+
+    socket.on('groupCreated', (group) => {
+      setGroups(prev => {
+        if (prev.some(g => g.id === group.id)) return prev;
+        return [...prev, group];
+      });
+    });
+
+    socket.on('groupDeleted', (groupId) => {
+      setGroups(prev => prev.filter(g => g.id !== groupId));
+      setCurrentChat(prev => prev?.id === `group_${groupId}` ? null : prev);
+    });
+
+    return () => {
+      socket.off('userOnline');
+      socket.off('userOffline');
+      socket.off('newMessage');
+      socket.off('contactAdded');
+      socket.off('groupCreated');
+      socket.off('groupDeleted');
+    };
+  }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, currentChat]);
+
+  const handleAuth = () => {
+    if (!nameInput.trim() || !passwordInput) {
+      setAuthError('Please enter name and password');
+      return;
+    }
+
+    const event = authMode === 'login' ? 'login' : 'register';
+    socket.emit(event, { name: nameInput.trim(), password: passwordInput }, (response) => {
+      if (response.success) {
+        setUserName(response.name);
+        setIsLoggedIn(true);
+        setAuthError('');
+        // Fetch user data
+        socket.emit('getUserData', null, (data) => {
+          setContacts(data.contacts);
+          setGroups(data.groups);
+          setMessages(data.messages);
+        });
+      } else {
+        setAuthError(response.error);
+      }
+    });
+  };
+
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setUserName('');
+    setNameInput('');
+    setPasswordInput('');
+    setContacts([]);
+    setGroups([]);
+    setMessages({});
+    setCurrentChat(null);
+    window.location.reload();
+  };
+
+  const addContact = () => {
+    if (!newContactName.trim()) {
+      setContactError('Please enter a name');
+      return;
+    }
+
+    socket.emit('addContact', { contactName: newContactName.trim() }, (response) => {
+      if (response.success) {
+        setContacts(prev => [...prev, response.contact]);
+        setNewContactName('');
+        setContactError('');
+        setShowContactModal(false);
+      } else {
+        setContactError(response.error);
+      }
+    });
+  };
+
+  const removeContact = (contactName) => {
+    if (window.confirm(`Remove ${contactName} from contacts?`)) {
+      socket.emit('removeContact', { contactName });
+      setContacts(prev => prev.filter(c => c.name.toLowerCase() !== contactName.toLowerCase()));
+      if (currentChat?.name?.toLowerCase() === contactName.toLowerCase()) {
+        setCurrentChat(null);
+      }
+    }
+  };
+
+  const createGroup = () => {
+    if (!newGroupName.trim()) return;
+    if (selectedMembers.length === 0) return;
+
+    socket.emit('createGroup', { name: newGroupName.trim(), members: selectedMembers }, (response) => {
+      if (response.success) {
+        setNewGroupName('');
+        setSelectedMembers([]);
+        setShowGroupModal(false);
+        setCurrentTab('groups');
+      }
+    });
+  };
+
+  const deleteGroup = (groupId) => {
+    if (window.confirm('Delete this group?')) {
+      socket.emit('deleteGroup', { groupId });
+    }
+  };
+
+  const getChatId = (contactName) => {
+    const sorted = [userName.toLowerCase(), contactName.toLowerCase()].sort();
+    return `dm_${sorted[0]}_${sorted[1]}`;
+  };
+
+  const openChat = (type, entity) => {
+    if (type === 'contact') {
+      const chatId = getChatId(entity.name);
+      setCurrentChat({ id: chatId, name: entity.name, type: 'contact', online: entity.online });
+    } else {
+      const chatId = `group_${entity.id}`;
+      setCurrentChat({ id: chatId, name: entity.name, type: 'group', groupId: entity.id, members: entity.members });
+    }
+  };
+
+  const sendMessage = () => {
+    if (!messageInput.trim() || !currentChat) return;
+
+    const message = {
+      text: messageInput.trim(),
+      sent: true,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    const recipient = currentChat.type === 'contact' ? currentChat.name : currentChat.groupId;
+
+    socket.emit('sendMessage', {
+      chatId: currentChat.id,
+      chatType: currentChat.type,
+      recipient,
+      message
+    });
+
+    setMessageInput('');
+  };
+
+  const getLastMessage = (chatId) => {
+    const chatMessages = messages[chatId] || [];
+    return chatMessages.length > 0 ? chatMessages[chatMessages.length - 1].text : 'No messages yet';
+  };
+
+  // Auth Screen
+  if (!isLoggedIn) {
+    return (
+      <div className="login-screen">
+        <div className="login-box">
+          <h1>Messages</h1>
+          <p>{authMode === 'login' ? 'Log in to your account' : 'Create a new account'}</p>
+
+          <div className="auth-tabs">
+            <button
+              className={`auth-tab ${authMode === 'login' ? 'active' : ''}`}
+              onClick={() => { setAuthMode('login'); setAuthError(''); }}
+            >
+              Login
+            </button>
+            <button
+              className={`auth-tab ${authMode === 'register' ? 'active' : ''}`}
+              onClick={() => { setAuthMode('register'); setAuthError(''); }}
+            >
+              Register
+            </button>
+          </div>
+
+          <input
+            type="text"
+            className="login-input"
+            value={nameInput}
+            onChange={(e) => { setNameInput(e.target.value); setAuthError(''); }}
+            onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
+            placeholder="Username"
+            autoFocus
+          />
+          <input
+            type="password"
+            className="login-input"
+            value={passwordInput}
+            onChange={(e) => { setPasswordInput(e.target.value); setAuthError(''); }}
+            onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
+            placeholder="Password"
+          />
+          {authError && <div className="error-message">{authError}</div>}
+          <button className="login-btn" onClick={handleAuth}>
+            {authMode === 'login' ? 'Login' : 'Create Account'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Main App
+  return (
+    <div className="container">
+      {/* Sidebar */}
+      <div className="sidebar">
+        <div className="sidebar-header">
+          <div className="user-info">
+            <span className="user-name">{userName}</span>
+            <button className="logout-btn" onClick={handleLogout}>Logout</button>
+          </div>
+          <div className="header-buttons">
+            <button className="header-btn" onClick={() => { setShowContactModal(true); setContactError(''); setNewContactName(''); }}>+ Contact</button>
+            <button className="header-btn" onClick={() => {
+              if (contacts.length === 0) {
+                alert('Add contacts first!');
+                return;
+              }
+              setShowGroupModal(true);
+            }}>+ Group</button>
+          </div>
+        </div>
+        <div className="tabs">
+          <button className={`tab ${currentTab === 'contacts' ? 'active' : ''}`} onClick={() => setCurrentTab('contacts')}>Contacts</button>
+          <button className={`tab ${currentTab === 'groups' ? 'active' : ''}`} onClick={() => setCurrentTab('groups')}>Groups</button>
+        </div>
+        <div className="contact-list">
+          {currentTab === 'contacts' ? (
+            contacts.length === 0 ? (
+              <div className="empty-list">No contacts yet. Add someone by their username!</div>
+            ) : (
+              contacts.map(contact => (
+                <div key={contact.name} className={`contact-item ${currentChat?.name === contact.name ? 'active' : ''}`} onClick={() => openChat('contact', contact)}>
+                  <div className="avatar">
+                    {contact.name.charAt(0).toUpperCase()}
+                    <span className={`status-dot ${contact.online ? 'online' : 'offline'}`}></span>
+                  </div>
+                  <div className="contact-info">
+                    <div className="contact-name">{contact.name}</div>
+                    <div className="last-message">{getLastMessage(getChatId(contact.name))}</div>
+                  </div>
+                  <button className="delete-btn" onClick={(e) => { e.stopPropagation(); removeContact(contact.name); }}>X</button>
+                </div>
+              ))
+            )
+          ) : (
+            groups.length === 0 ? (
+              <div className="empty-list">No groups yet</div>
+            ) : (
+              groups.map(group => (
+                <div key={group.id} className={`contact-item ${currentChat?.groupId === group.id ? 'active' : ''}`} onClick={() => openChat('group', group)}>
+                  <div className="avatar group-avatar">{group.name.charAt(0).toUpperCase()}</div>
+                  <div className="contact-info">
+                    <div className="contact-name">{group.name}</div>
+                    <div className="last-message">{getLastMessage(`group_${group.id}`)}</div>
+                  </div>
+                  <button className="delete-btn" onClick={(e) => { e.stopPropagation(); deleteGroup(group.id); }}>X</button>
+                </div>
+              ))
+            )
+          )}
+        </div>
+      </div>
+
+      {/* Chat Area */}
+      <div className="chat-area">
+        {!currentChat ? (
+          <div className="no-chat">
+            <h3>Welcome, {userName}!</h3>
+            <p>Select a contact or group to start chatting</p>
+          </div>
+        ) : (
+          <>
+            <div className="chat-header">
+              <div className={`avatar ${currentChat.type === 'group' ? 'group-avatar' : ''}`}>
+                {currentChat.name?.charAt(0).toUpperCase()}
+                {currentChat.type === 'contact' && (
+                  <span className={`status-dot ${currentChat.online ? 'online' : 'offline'}`}></span>
+                )}
+              </div>
+              <div className="chat-header-info">
+                <div className="contact-name">{currentChat.name}</div>
+                {currentChat.type === 'contact' && (
+                  <div className="status-text">{currentChat.online ? 'Online' : 'Offline'}</div>
+                )}
+                {currentChat.type === 'group' && (
+                  <div className="status-text">{currentChat.members?.join(', ')}</div>
+                )}
+              </div>
+            </div>
+            <div className="chat-messages">
+              {(messages[currentChat.id] || []).map((msg, idx) => (
+                <div key={idx} className={`message ${msg.sent ? 'sent' : 'received'}`}>
+                  {!msg.sent && currentChat.type === 'group' && (
+                    <div className="message-sender">{msg.sender}</div>
+                  )}
+                  <div className="message-text">{msg.text}</div>
+                  <div className="message-time">{msg.time}</div>
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+            <div className="chat-input-area">
+              <input
+                type="text"
+                className="chat-input"
+                value={messageInput}
+                onChange={(e) => setMessageInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+                placeholder="Type a message..."
+              />
+              <button className="send-btn" onClick={sendMessage}>Send</button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Add Contact Modal */}
+      {showContactModal && (
+        <div className="modal-overlay" onClick={() => setShowContactModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Add Contact</h3>
+            <p style={{ marginBottom: '15px', color: '#666' }}>Enter the username of the person you want to add</p>
+            <input
+              type="text"
+              className="modal-input"
+              value={newContactName}
+              onChange={(e) => { setNewContactName(e.target.value); setContactError(''); }}
+              onKeyDown={(e) => e.key === 'Enter' && addContact()}
+              placeholder="Enter username..."
+              autoFocus
+            />
+            {contactError && <div className="error-message">{contactError}</div>}
+            <div className="modal-buttons">
+              <button className="modal-btn cancel" onClick={() => setShowContactModal(false)}>Cancel</button>
+              <button className="modal-btn confirm" onClick={addContact}>Add</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Group Modal */}
+      {showGroupModal && (
+        <div className="modal-overlay" onClick={() => setShowGroupModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Create Group Chat</h3>
+            <input
+              type="text"
+              className="modal-input"
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              placeholder="Enter group name..."
+              autoFocus
+            />
+            <p style={{ marginBottom: '10px', color: '#666' }}>Select members:</p>
+            <div className="contact-checkboxes">
+              {contacts.map(contact => (
+                <label key={contact.name} className="contact-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={selectedMembers.includes(contact.name)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedMembers([...selectedMembers, contact.name]);
+                      } else {
+                        setSelectedMembers(selectedMembers.filter(n => n !== contact.name));
+                      }
+                    }}
+                  />
+                  <span>{contact.name}</span>
+                </label>
+              ))}
+            </div>
+            <div className="modal-buttons">
+              <button className="modal-btn cancel" onClick={() => setShowGroupModal(false)}>Cancel</button>
+              <button className="modal-btn confirm" onClick={createGroup}>Create</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
