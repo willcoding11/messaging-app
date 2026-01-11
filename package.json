@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"node server.js\" \"vite\"",
-    "build": "vite build",
+    "dev": "concurrently \"node server.js\" \"npx vite\"",
+    "build": "npx vite build",
     "start": "node server.js"
   },
   "dependencies": {
