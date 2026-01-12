@@ -522,3 +522,34 @@ body {
   font-weight: 600;
   margin-bottom: 3px;
 }
+
+/* Image Button */
+.image-btn {
+  padding: 12px 15px;
+  background: #075e54;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-btn:hover {
+  background: #064e46;
+}
+
+/* Message Image */
+.message-image {
+  max-width: 250px;
+  max-height: 300px;
+  border-radius: 8px;
+  margin-bottom: 5px;
+  cursor: pointer;
+  object-fit: cover;
+}
+
+.message-image:hover {
+  opacity: 0.9;
+}

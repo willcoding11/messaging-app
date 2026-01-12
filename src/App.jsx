@@ -8,7 +8,7 @@ const socket = io(serverUrl);
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [authMode, setAuthMode] = useState('login'); // 'login' or 'register'
+  const [authMode, setAuthMode] = useState('login');
   const [userName, setUserName] = useState('');
   const [nameInput, setNameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
@@ -26,6 +26,7 @@ function App() {
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [contactError, setContactError] = useState('');
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   // Socket event listeners
   useEffect(() => {
@@ -67,6 +68,10 @@ function App() {
       setCurrentChat(prev => prev?.id === `group_${groupId}` ? null : prev);
     });
 
+    socket.on('error', ({ message }) => {
+      alert(message);
+    });
+
     return () => {
       socket.off('userOnline');
       socket.off('userOffline');
@@ -74,6 +79,7 @@ function App() {
       socket.off('contactAdded');
       socket.off('groupCreated');
       socket.off('groupDeleted');
+      socket.off('error');
     };
   }, []);
 
@@ -93,7 +99,6 @@ function App() {
         setUserName(response.name);
         setIsLoggedIn(true);
         setAuthError('');
-        // Fetch user data
         socket.emit('getUserData', null, (data) => {
           setContacts(data.contacts);
           setGroups(data.groups);
@@ -180,11 +185,13 @@ function App() {
     }
   };
 
-  const sendMessage = () => {
-    if (!messageInput.trim() || !currentChat) return;
+  const sendMessage = (text = null, image = null) => {
+    if (!currentChat) return;
+    if (!text && !image && !messageInput.trim()) return;
 
     const message = {
-      text: messageInput.trim(),
+      text: text || messageInput.trim() || '',
+      image: image || null,
       sent: true,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
@@ -201,9 +208,39 @@ function App() {
     setMessageInput('');
   };
 
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image too large. Max size is 5MB.');
+      return;
+    }
+
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result;
+      sendMessage('', base64);
+    };
+    reader.readAsDataURL(file);
+
+    // Reset input
+    e.target.value = '';
+  };
+
   const getLastMessage = (chatId) => {
     const chatMessages = messages[chatId] || [];
-    return chatMessages.length > 0 ? chatMessages[chatMessages.length - 1].text : 'No messages yet';
+    if (chatMessages.length === 0) return 'No messages yet';
+    const lastMsg = chatMessages[chatMessages.length - 1];
+    if (lastMsg.image) return '📷 Image';
+    return lastMsg.text || 'No messages yet';
   };
 
   // Auth Screen
@@ -310,7 +347,9 @@ function App() {
                     <div className="contact-name">{group.name}</div>
                     <div className="last-message">{getLastMessage(`group_${group.id}`)}</div>
                   </div>
-                  <button className="delete-btn" onClick={(e) => { e.stopPropagation(); deleteGroup(group.id); }}>X</button>
+                  {group.creator.toLowerCase() === userName.toLowerCase() && (
+                    <button className="delete-btn" onClick={(e) => { e.stopPropagation(); deleteGroup(group.id); }}>X</button>
+                  )}
                 </div>
               ))
             )
@@ -350,13 +389,35 @@ function App() {
                   {!msg.sent && currentChat.type === 'group' && (
                     <div className="message-sender">{msg.sender}</div>
                   )}
-                  <div className="message-text">{msg.text}</div>
+                  {msg.image && (
+                    <img
+                      src={msg.image}
+                      alt="Shared"
+                      className="message-image"
+                      onClick={() => window.open(msg.image, '_blank')}
+                    />
+                  )}
+                  {msg.text && <div className="message-text">{msg.text}</div>}
                   <div className="message-time">{msg.time}</div>
                 </div>
               ))}
               <div ref={messagesEndRef} />
             </div>
             <div className="chat-input-area">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleImageSelect}
+                accept="image/*"
+                style={{ display: 'none' }}
+              />
+              <button
+                className="image-btn"
+                onClick={() => fileInputRef.current?.click()}
+                title="Send image"
+              >
+                📷
+              </button>
               <input
                 type="text"
                 className="chat-input"
@@ -365,7 +426,7 @@ function App() {
                 onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
                 placeholder="Type a message..."
               />
-              <button className="send-btn" onClick={sendMessage}>Send</button>
+              <button className="send-btn" onClick={() => sendMessage()}>Send</button>
             </div>
           </>
         )}

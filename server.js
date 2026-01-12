@@ -1,7 +1,7 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { createHash } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -11,9 +11,14 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const server = createServer(app);
+// In production, restrict CORS to your actual domain
+const allowedOrigins = process.env.NODE_ENV === 'production'
+  ? [process.env.ALLOWED_ORIGIN || 'http://localhost:3001']
+  : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'];
+
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: allowedOrigins,
     methods: ["GET", "POST"]
   }
 });
@@ -45,9 +50,40 @@ function saveData() {
   writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
-// Simple password hashing
-function hashPassword(password) {
-  return createHash('sha256').update(password).digest('hex');
+// Password hashing with salt for security
+function hashPassword(password, salt = null) {
+  if (!salt) {
+    salt = randomBytes(16).toString('hex');
+  }
+  const hash = createHash('sha256').update(salt + password).digest('hex');
+  return { hash, salt };
+}
+
+// Verify password against stored hash and salt
+function verifyPassword(password, storedHash, storedSalt) {
+  const { hash } = hashPassword(password, storedSalt);
+  // Use timing-safe comparison to prevent timing attacks
+  try {
+    return timingSafeEqual(Buffer.from(hash), Buffer.from(storedHash));
+  } catch {
+    return false;
+  }
+}
+
+// Validate image data (must be a valid base64 image)
+function isValidImageData(imageData) {
+  if (!imageData || typeof imageData !== 'string') return false;
+  // Check for valid image data URI prefixes
+  const validPrefixes = [
+    'data:image/jpeg;base64,',
+    'data:image/jpg;base64,',
+    'data:image/png;base64,',
+    'data:image/gif;base64,',
+    'data:image/webp;base64,',
+    'data:image/svg+xml;base64,',
+    'data:image/bmp;base64,'
+  ];
+  return validPrefixes.some(prefix => imageData.startsWith(prefix));
 }
 
 // Persistent data
@@ -81,10 +117,12 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Create user
+    // Create user with salted password hash
+    const { hash, salt } = hashPassword(password);
     data.users[lowerName] = {
       name: trimmedName,
-      password: hashPassword(password),
+      passwordHash: hash,
+      passwordSalt: salt,
       contacts: [],
       createdAt: Date.now()
     };
@@ -116,7 +154,26 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (user.password !== hashPassword(password)) {
+    // Support both old (password) and new (passwordHash + passwordSalt) formats
+    let passwordValid = false;
+    if (user.passwordHash && user.passwordSalt) {
+      // New secure format with salt
+      passwordValid = verifyPassword(password, user.passwordHash, user.passwordSalt);
+    } else if (user.password) {
+      // Legacy format (unsalted) - migrate to new format on successful login
+      const legacyHash = createHash('sha256').update(password).digest('hex');
+      if (user.password === legacyHash) {
+        passwordValid = true;
+        // Migrate to new secure format
+        const { hash, salt } = hashPassword(password);
+        user.passwordHash = hash;
+        user.passwordSalt = salt;
+        delete user.password;
+        saveData();
+      }
+    }
+
+    if (!passwordValid) {
       callback({ success: false, error: 'Incorrect password' });
       return;
     }
@@ -277,10 +334,18 @@ io.on('connection', (socket) => {
     callback({ success: true, group });
   });
 
-  // Delete group
+  // Delete group (only creator can delete)
   socket.on('deleteGroup', ({ groupId }) => {
+    if (!currentUser) return;
+
     const group = data.groups[groupId];
     if (!group) return;
+
+    // Only allow the creator to delete the group
+    if (group.creator.toLowerCase() !== currentUser.toLowerCase()) {
+      socket.emit('error', { message: 'Only the group creator can delete this group' });
+      return;
+    }
 
     // Notify all online members
     group.members.forEach(memberName => {
@@ -299,9 +364,28 @@ io.on('connection', (socket) => {
   socket.on('sendMessage', ({ chatId, chatType, recipient, message }) => {
     if (!currentUser) return;
 
+    // Validate image if present
+    if (message.image) {
+      if (!isValidImageData(message.image)) {
+        socket.emit('error', { message: 'Invalid image format' });
+        return;
+      }
+      // Limit image size (5MB in base64 is roughly 6.67MB string)
+      if (message.image.length > 7 * 1024 * 1024) {
+        socket.emit('error', { message: 'Image too large' });
+        return;
+      }
+    }
+
+    // Sanitize text content (prevent any potential script injection)
+    const sanitizedText = message.text ? String(message.text).slice(0, 5000) : '';
+
     // Add sender info to message
     const fullMessage = {
-      ...message,
+      text: sanitizedText,
+      image: message.image || null,
+      sent: message.sent,
+      time: message.time,
       sender: currentUser
     };
 
