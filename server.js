@@ -2,16 +2,62 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import mongoose from 'mongoose';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// MongoDB Connection
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/messaging-app';
+
+mongoose.connect(MONGODB_URI)
+  .then(() => console.log('Connected to MongoDB'))
+  .catch(err => console.error('MongoDB connection error:', err));
+
+// Mongoose Schemas
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  nameLower: { type: String, required: true, unique: true },
+  passwordHash: { type: String, required: true },
+  passwordSalt: { type: String, required: true },
+  contacts: [String],
+  pendingInvites: [{
+    from: String,
+    timestamp: Number
+  }],
+  sentInvites: [String],
+  avatar: String,
+  theme: { type: String, default: 'green' },
+  createdAt: { type: Number, default: Date.now }
+});
+
+const groupSchema = new mongoose.Schema({
+  groupId: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  creator: { type: String, required: true },
+  members: [String],
+  description: String,
+  avatar: String
+});
+
+const messageSchema = new mongoose.Schema({
+  chatId: { type: String, required: true, index: true },
+  text: String,
+  image: String,
+  sender: String,
+  time: String,
+  timestamp: { type: Number, default: Date.now }
+});
+
+const User = mongoose.model('User', userSchema);
+const Group = mongoose.model('Group', groupSchema);
+const Message = mongoose.model('Message', messageSchema);
+
 const app = express();
 const server = createServer(app);
-// In production, restrict CORS to your actual domain
+
 const allowedOrigins = process.env.NODE_ENV === 'production'
   ? [process.env.ALLOWED_ORIGIN || 'http://localhost:3001']
   : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'];
@@ -23,34 +69,14 @@ const io = new Server(server, {
   }
 });
 
-// Serve static files from dist folder (production build)
+// Serve static files from dist folder
 app.use(express.static(join(__dirname, 'dist')));
 
-// Serve index.html for all routes (SPA support)
 app.get('*', (req, res) => {
   res.sendFile(join(__dirname, 'dist', 'index.html'));
 });
 
-const DATA_FILE = './data.json';
-
-// Load or initialize data
-function loadData() {
-  if (existsSync(DATA_FILE)) {
-    try {
-      const raw = readFileSync(DATA_FILE, 'utf-8');
-      return JSON.parse(raw);
-    } catch {
-      return { users: {}, messages: {}, groups: {} };
-    }
-  }
-  return { users: {}, messages: {}, groups: {} };
-}
-
-function saveData() {
-  writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
-
-// Password hashing with salt for security
+// Password hashing
 function hashPassword(password, salt = null) {
   if (!salt) {
     salt = randomBytes(16).toString('hex');
@@ -59,10 +85,8 @@ function hashPassword(password, salt = null) {
   return { hash, salt };
 }
 
-// Verify password against stored hash and salt
 function verifyPassword(password, storedHash, storedSalt) {
   const { hash } = hashPassword(password, storedSalt);
-  // Use timing-safe comparison to prevent timing attacks
   try {
     return timingSafeEqual(Buffer.from(hash), Buffer.from(storedHash));
   } catch {
@@ -70,10 +94,9 @@ function verifyPassword(password, storedHash, storedSalt) {
   }
 }
 
-// Validate image data (must be a valid base64 image)
+// Validate image data
 function isValidImageData(imageData) {
   if (!imageData || typeof imageData !== 'string') return false;
-  // Check for valid image data URI prefixes
   const validPrefixes = [
     'data:image/jpeg;base64,',
     'data:image/jpg;base64,',
@@ -86,716 +109,689 @@ function isValidImageData(imageData) {
   return validPrefixes.some(prefix => imageData.startsWith(prefix));
 }
 
-// Persistent data
-let data = loadData();
-
 // Runtime state (online users)
-const onlineUsers = new Map(); // name -> socketId
+const onlineUsers = new Map();
+
+// Helper to create consistent chat IDs
+function getChatId(user1, user2) {
+  const sorted = [user1.toLowerCase(), user2.toLowerCase()].sort();
+  return `dm_${sorted[0]}_${sorted[1]}`;
+}
 
 io.on('connection', (socket) => {
   console.log('Socket connected:', socket.id);
   let currentUser = null;
 
   // Register new user
-  socket.on('register', ({ name, password }, callback) => {
-    const trimmedName = name.trim();
-    const lowerName = trimmedName.toLowerCase();
+  socket.on('register', async ({ name, password }, callback) => {
+    try {
+      const trimmedName = name.trim();
+      const lowerName = trimmedName.toLowerCase();
 
-    if (!trimmedName || !password) {
-      callback({ success: false, error: 'Name and password required' });
-      return;
-    }
-
-    if (password.length < 4) {
-      callback({ success: false, error: 'Password must be at least 4 characters' });
-      return;
-    }
-
-    // Check if name is taken
-    if (data.users[lowerName]) {
-      callback({ success: false, error: 'Name is already taken' });
-      return;
-    }
-
-    // Create user with salted password hash
-    const { hash, salt } = hashPassword(password);
-    data.users[lowerName] = {
-      name: trimmedName,
-      passwordHash: hash,
-      passwordSalt: salt,
-      contacts: [],
-      pendingInvites: [],
-      sentInvites: [],
-      avatar: null,
-      theme: 'green',
-      createdAt: Date.now()
-    };
-    saveData();
-
-    // Log them in
-    currentUser = trimmedName;
-    onlineUsers.set(lowerName, socket.id);
-
-    console.log(`User registered: ${trimmedName}`);
-    callback({
-      success: true,
-      name: trimmedName,
-      avatar: null,
-      theme: 'green'
-    });
-
-    io.emit('userOnline', { name: trimmedName });
-  });
-
-  // Login existing user
-  socket.on('login', ({ name, password }, callback) => {
-    const trimmedName = name.trim();
-    const lowerName = trimmedName.toLowerCase();
-
-    if (!trimmedName || !password) {
-      callback({ success: false, error: 'Name and password required' });
-      return;
-    }
-
-    const user = data.users[lowerName];
-    if (!user) {
-      callback({ success: false, error: 'User not found' });
-      return;
-    }
-
-    // Support both old (password) and new (passwordHash + passwordSalt) formats
-    let passwordValid = false;
-    if (user.passwordHash && user.passwordSalt) {
-      // New secure format with salt
-      passwordValid = verifyPassword(password, user.passwordHash, user.passwordSalt);
-    } else if (user.password) {
-      // Legacy format (unsalted) - migrate to new format on successful login
-      const legacyHash = createHash('sha256').update(password).digest('hex');
-      if (user.password === legacyHash) {
-        passwordValid = true;
-        // Migrate to new secure format
-        const { hash, salt } = hashPassword(password);
-        user.passwordHash = hash;
-        user.passwordSalt = salt;
-        delete user.password;
-        saveData();
+      if (!trimmedName || !password) {
+        callback({ success: false, error: 'Name and password required' });
+        return;
       }
-    }
 
-    if (!passwordValid) {
-      callback({ success: false, error: 'Incorrect password' });
-      return;
-    }
-
-    // Log them in
-    currentUser = user.name;
-    onlineUsers.set(lowerName, socket.id);
-
-    console.log(`User logged in: ${user.name}`);
-    callback({
-      success: true,
-      name: user.name,
-      avatar: user.avatar || null,
-      theme: user.theme || 'green'
-    });
-
-    io.emit('userOnline', { name: user.name });
-  });
-
-  // Get user data after login
-  socket.on('getUserData', (_, callback) => {
-    if (!currentUser) {
-      callback({ contacts: [], groups: [], messages: {} });
-      return;
-    }
-
-    const lowerName = currentUser.toLowerCase();
-    const user = data.users[lowerName];
-    if (!user) {
-      callback({ contacts: [], groups: [], messages: {} });
-      return;
-    }
-
-    // Get contact details with online status and avatar
-    const contactDetails = (user.contacts || []).map(contactName => {
-      const contactLower = contactName.toLowerCase();
-      const contactUser = data.users[contactLower];
-      return {
-        name: contactName,
-        online: onlineUsers.has(contactLower),
-        avatar: contactUser?.avatar || null
-      };
-    });
-
-    // Get user's groups
-    const userGroups = [];
-    Object.values(data.groups || {}).forEach(group => {
-      if (group.members.some(m => m.toLowerCase() === lowerName)) {
-        userGroups.push(group);
+      if (password.length < 4) {
+        callback({ success: false, error: 'Password must be at least 4 characters' });
+        return;
       }
-    });
 
-    // Get messages for user's chats with correct sent flag
-    const userMessages = {};
-
-    // Helper to fix sent flag based on current user
-    const fixMessagesSentFlag = (messages) => {
-      return messages.map(msg => ({
-        ...msg,
-        sent: msg.sender?.toLowerCase() === currentUser.toLowerCase()
-      }));
-    };
-
-    // Contact messages
-    (user.contacts || []).forEach(contactName => {
-      const chatId = getChatId(currentUser, contactName);
-      if (data.messages[chatId]) {
-        userMessages[chatId] = fixMessagesSentFlag(data.messages[chatId]);
+      const existingUser = await User.findOne({ nameLower: lowerName });
+      if (existingUser) {
+        callback({ success: false, error: 'Name is already taken' });
+        return;
       }
-    });
 
-    // Group messages
-    userGroups.forEach(group => {
-      const chatId = `group_${group.id}`;
-      if (data.messages[chatId]) {
-        userMessages[chatId] = fixMessagesSentFlag(data.messages[chatId]);
-      }
-    });
+      const { hash, salt } = hashPassword(password);
+      const user = new User({
+        name: trimmedName,
+        nameLower: lowerName,
+        passwordHash: hash,
+        passwordSalt: salt,
+        contacts: [],
+        pendingInvites: [],
+        sentInvites: [],
+        avatar: null,
+        theme: 'green'
+      });
+      await user.save();
 
-    // Get pending invites for this user
-    const pendingInvites = (user.pendingInvites || []).map(invite => {
-      const inviterUser = data.users[invite.from.toLowerCase()];
-      return {
-        ...invite,
-        avatar: inviterUser?.avatar || null
-      };
-    });
+      currentUser = trimmedName;
+      onlineUsers.set(lowerName, socket.id);
 
-    callback({
-      contacts: contactDetails,
-      groups: userGroups,
-      messages: userMessages,
-      pendingInvites
-    });
-  });
-
-  // Send contact invite
-  socket.on('addContact', ({ contactName }, callback) => {
-    if (!currentUser) {
-      callback({ success: false, error: 'Not logged in' });
-      return;
-    }
-
-    const trimmedName = contactName.trim();
-    const lowerName = trimmedName.toLowerCase();
-    const currentLower = currentUser.toLowerCase();
-    const currentUserData = data.users[currentLower];
-
-    // Can't add yourself
-    if (lowerName === currentLower) {
-      callback({ success: false, error: "You can't add yourself" });
-      return;
-    }
-
-    // Check if user exists
-    const targetUser = data.users[lowerName];
-    if (!targetUser) {
-      callback({ success: false, error: 'User not found' });
-      return;
-    }
-
-    // Check if already a contact
-    const userContacts = currentUserData.contacts || [];
-    if (userContacts.some(c => c.toLowerCase() === lowerName)) {
-      callback({ success: false, error: 'Already in contacts' });
-      return;
-    }
-
-    // Check if invite already sent
-    const sentInvites = currentUserData.sentInvites || [];
-    if (sentInvites.some(i => i.toLowerCase() === lowerName)) {
-      callback({ success: false, error: 'Invite already sent' });
-      return;
-    }
-
-    // Check if they already sent us an invite (auto-accept)
-    const pendingInvites = currentUserData.pendingInvites || [];
-    const existingInvite = pendingInvites.find(i => i.from.toLowerCase() === lowerName);
-    if (existingInvite) {
-      // Auto-accept: both become contacts
-      currentUserData.contacts.push(targetUser.name);
-      targetUser.contacts = targetUser.contacts || [];
-      targetUser.contacts.push(currentUser);
-
-      // Remove from pending
-      currentUserData.pendingInvites = pendingInvites.filter(i => i.from.toLowerCase() !== lowerName);
-      targetUser.sentInvites = (targetUser.sentInvites || []).filter(i => i.toLowerCase() !== currentLower);
-
-      saveData();
-
-      // Notify current user
+      console.log(`User registered: ${trimmedName}`);
       callback({
         success: true,
-        contact: {
-          name: targetUser.name,
-          online: onlineUsers.has(lowerName),
-          avatar: targetUser.avatar || null
-        },
-        message: 'Contact added!'
+        name: trimmedName,
+        avatar: null,
+        theme: 'green'
       });
 
-      // Notify target user if online
+      io.emit('userOnline', { name: trimmedName });
+    } catch (err) {
+      console.error('Register error:', err);
+      callback({ success: false, error: 'Registration failed' });
+    }
+  });
+
+  // Login
+  socket.on('login', async ({ name, password }, callback) => {
+    try {
+      const trimmedName = name.trim();
+      const lowerName = trimmedName.toLowerCase();
+
+      if (!trimmedName || !password) {
+        callback({ success: false, error: 'Name and password required' });
+        return;
+      }
+
+      const user = await User.findOne({ nameLower: lowerName });
+      if (!user) {
+        callback({ success: false, error: 'User not found' });
+        return;
+      }
+
+      if (!verifyPassword(password, user.passwordHash, user.passwordSalt)) {
+        callback({ success: false, error: 'Incorrect password' });
+        return;
+      }
+
+      currentUser = user.name;
+      onlineUsers.set(lowerName, socket.id);
+
+      console.log(`User logged in: ${user.name}`);
+      callback({
+        success: true,
+        name: user.name,
+        avatar: user.avatar || null,
+        theme: user.theme || 'green'
+      });
+
+      io.emit('userOnline', { name: user.name });
+    } catch (err) {
+      console.error('Login error:', err);
+      callback({ success: false, error: 'Login failed' });
+    }
+  });
+
+  // Get user data
+  socket.on('getUserData', async (_, callback) => {
+    try {
+      if (!currentUser) {
+        callback({ contacts: [], groups: [], messages: {}, pendingInvites: [] });
+        return;
+      }
+
+      const lowerName = currentUser.toLowerCase();
+      const user = await User.findOne({ nameLower: lowerName });
+      if (!user) {
+        callback({ contacts: [], groups: [], messages: {}, pendingInvites: [] });
+        return;
+      }
+
+      // Get contact details
+      const contactDetails = [];
+      for (const contactName of user.contacts || []) {
+        const contactUser = await User.findOne({ nameLower: contactName.toLowerCase() });
+        contactDetails.push({
+          name: contactName,
+          online: onlineUsers.has(contactName.toLowerCase()),
+          avatar: contactUser?.avatar || null
+        });
+      }
+
+      // Get user's groups
+      const userGroups = await Group.find({
+        members: { $elemMatch: { $regex: new RegExp(`^${lowerName}$`, 'i') } }
+      });
+
+      const groupsData = userGroups.map(g => ({
+        id: g.groupId,
+        name: g.name,
+        creator: g.creator,
+        members: g.members,
+        description: g.description,
+        avatar: g.avatar
+      }));
+
+      // Get messages
+      const userMessages = {};
+
+      // Contact messages
+      for (const contactName of user.contacts || []) {
+        const chatId = getChatId(currentUser, contactName);
+        const msgs = await Message.find({ chatId }).sort({ timestamp: 1 });
+        if (msgs.length > 0) {
+          userMessages[chatId] = msgs.map(msg => ({
+            text: msg.text,
+            image: msg.image,
+            sender: msg.sender,
+            time: msg.time,
+            sent: msg.sender?.toLowerCase() === currentUser.toLowerCase()
+          }));
+        }
+      }
+
+      // Group messages
+      for (const group of userGroups) {
+        const chatId = `group_${group.groupId}`;
+        const msgs = await Message.find({ chatId }).sort({ timestamp: 1 });
+        if (msgs.length > 0) {
+          userMessages[chatId] = msgs.map(msg => ({
+            text: msg.text,
+            image: msg.image,
+            sender: msg.sender,
+            time: msg.time,
+            sent: msg.sender?.toLowerCase() === currentUser.toLowerCase()
+          }));
+        }
+      }
+
+      // Get pending invites
+      const pendingInvites = [];
+      for (const invite of user.pendingInvites || []) {
+        const inviterUser = await User.findOne({ nameLower: invite.from.toLowerCase() });
+        pendingInvites.push({
+          from: invite.from,
+          timestamp: invite.timestamp,
+          avatar: inviterUser?.avatar || null
+        });
+      }
+
+      callback({
+        contacts: contactDetails,
+        groups: groupsData,
+        messages: userMessages,
+        pendingInvites
+      });
+    } catch (err) {
+      console.error('getUserData error:', err);
+      callback({ contacts: [], groups: [], messages: {}, pendingInvites: [] });
+    }
+  });
+
+  // Add contact (send invite)
+  socket.on('addContact', async ({ contactName }, callback) => {
+    try {
+      if (!currentUser) {
+        callback({ success: false, error: 'Not logged in' });
+        return;
+      }
+
+      const trimmedName = contactName.trim();
+      const lowerName = trimmedName.toLowerCase();
+      const currentLower = currentUser.toLowerCase();
+
+      if (lowerName === currentLower) {
+        callback({ success: false, error: "You can't add yourself" });
+        return;
+      }
+
+      const targetUser = await User.findOne({ nameLower: lowerName });
+      if (!targetUser) {
+        callback({ success: false, error: 'User not found' });
+        return;
+      }
+
+      const currentUserData = await User.findOne({ nameLower: currentLower });
+
+      // Already a contact?
+      if (currentUserData.contacts.some(c => c.toLowerCase() === lowerName)) {
+        callback({ success: false, error: 'Already in contacts' });
+        return;
+      }
+
+      // Invite already sent?
+      if (currentUserData.sentInvites.some(i => i.toLowerCase() === lowerName)) {
+        callback({ success: false, error: 'Invite already sent' });
+        return;
+      }
+
+      // Check if they sent us an invite (auto-accept)
+      const existingInvite = currentUserData.pendingInvites.find(i => i.from.toLowerCase() === lowerName);
+      if (existingInvite) {
+        currentUserData.contacts.push(targetUser.name);
+        targetUser.contacts.push(currentUser);
+        currentUserData.pendingInvites = currentUserData.pendingInvites.filter(i => i.from.toLowerCase() !== lowerName);
+        targetUser.sentInvites = targetUser.sentInvites.filter(i => i.toLowerCase() !== currentLower);
+
+        await currentUserData.save();
+        await targetUser.save();
+
+        callback({
+          success: true,
+          contact: {
+            name: targetUser.name,
+            online: onlineUsers.has(lowerName),
+            avatar: targetUser.avatar || null
+          },
+          message: 'Contact added!'
+        });
+
+        const targetSocket = onlineUsers.get(lowerName);
+        if (targetSocket) {
+          io.to(targetSocket).emit('contactAdded', {
+            name: currentUser,
+            online: true,
+            avatar: currentUserData.avatar || null
+          });
+          io.to(targetSocket).emit('inviteAccepted', { by: currentUser });
+        }
+        return;
+      }
+
+      // Create invite
+      targetUser.pendingInvites.push({
+        from: currentUser,
+        timestamp: Date.now()
+      });
+      currentUserData.sentInvites.push(targetUser.name);
+
+      await currentUserData.save();
+      await targetUser.save();
+
       const targetSocket = onlineUsers.get(lowerName);
       if (targetSocket) {
-        io.to(targetSocket).emit('contactAdded', {
+        io.to(targetSocket).emit('newInvite', {
+          from: currentUser,
+          timestamp: Date.now(),
+          avatar: currentUserData.avatar || null
+        });
+      }
+
+      callback({ success: true, message: 'Invite sent!' });
+    } catch (err) {
+      console.error('addContact error:', err);
+      callback({ success: false, error: 'Failed to add contact' });
+    }
+  });
+
+  // Accept invite
+  socket.on('acceptInvite', async ({ fromName }, callback) => {
+    try {
+      if (!currentUser) {
+        callback({ success: false, error: 'Not logged in' });
+        return;
+      }
+
+      const currentLower = currentUser.toLowerCase();
+      const fromLower = fromName.toLowerCase();
+
+      const currentUserData = await User.findOne({ nameLower: currentLower });
+      const fromUser = await User.findOne({ nameLower: fromLower });
+
+      if (!fromUser) {
+        callback({ success: false, error: 'User not found' });
+        return;
+      }
+
+      const invite = currentUserData.pendingInvites.find(i => i.from.toLowerCase() === fromLower);
+      if (!invite) {
+        callback({ success: false, error: 'Invite not found' });
+        return;
+      }
+
+      currentUserData.contacts.push(fromUser.name);
+      fromUser.contacts.push(currentUser);
+      currentUserData.pendingInvites = currentUserData.pendingInvites.filter(i => i.from.toLowerCase() !== fromLower);
+      fromUser.sentInvites = fromUser.sentInvites.filter(i => i.toLowerCase() !== currentLower);
+
+      await currentUserData.save();
+      await fromUser.save();
+
+      const fromSocket = onlineUsers.get(fromLower);
+      if (fromSocket) {
+        io.to(fromSocket).emit('contactAdded', {
           name: currentUser,
           online: true,
           avatar: currentUserData.avatar || null
         });
-        io.to(targetSocket).emit('inviteAccepted', { by: currentUser });
+        io.to(fromSocket).emit('inviteAccepted', { by: currentUser });
       }
-      return;
-    }
 
-    // Create invite
-    const invite = {
-      from: currentUser,
-      timestamp: Date.now()
-    };
-
-    // Add to target's pending invites
-    targetUser.pendingInvites = targetUser.pendingInvites || [];
-    targetUser.pendingInvites.push(invite);
-
-    // Add to sender's sent invites
-    currentUserData.sentInvites = currentUserData.sentInvites || [];
-    currentUserData.sentInvites.push(targetUser.name);
-
-    saveData();
-
-    // Notify target user if online
-    const targetSocket = onlineUsers.get(lowerName);
-    if (targetSocket) {
-      io.to(targetSocket).emit('newInvite', {
-        ...invite,
-        avatar: currentUserData.avatar || null
+      callback({
+        success: true,
+        contact: {
+          name: fromUser.name,
+          online: onlineUsers.has(fromLower),
+          avatar: fromUser.avatar || null
+        }
       });
+    } catch (err) {
+      console.error('acceptInvite error:', err);
+      callback({ success: false, error: 'Failed to accept invite' });
     }
-
-    callback({ success: true, message: 'Invite sent!' });
   });
 
-  // Accept contact invite
-  socket.on('acceptInvite', ({ fromName }, callback) => {
-    if (!currentUser) {
-      callback({ success: false, error: 'Not logged in' });
-      return;
-    }
-
-    const currentLower = currentUser.toLowerCase();
-    const fromLower = fromName.toLowerCase();
-    const currentUserData = data.users[currentLower];
-    const fromUser = data.users[fromLower];
-
-    if (!fromUser) {
-      callback({ success: false, error: 'User not found' });
-      return;
-    }
-
-    // Check if invite exists
-    const pendingInvites = currentUserData.pendingInvites || [];
-    const invite = pendingInvites.find(i => i.from.toLowerCase() === fromLower);
-    if (!invite) {
-      callback({ success: false, error: 'Invite not found' });
-      return;
-    }
-
-    // Add both as contacts
-    currentUserData.contacts = currentUserData.contacts || [];
-    currentUserData.contacts.push(fromUser.name);
-
-    fromUser.contacts = fromUser.contacts || [];
-    fromUser.contacts.push(currentUser);
-
-    // Remove invite
-    currentUserData.pendingInvites = pendingInvites.filter(i => i.from.toLowerCase() !== fromLower);
-    fromUser.sentInvites = (fromUser.sentInvites || []).filter(i => i.toLowerCase() !== currentLower);
-
-    saveData();
-
-    // Notify inviter if online
-    const fromSocket = onlineUsers.get(fromLower);
-    if (fromSocket) {
-      io.to(fromSocket).emit('contactAdded', {
-        name: currentUser,
-        online: true,
-        avatar: currentUserData.avatar || null
-      });
-      io.to(fromSocket).emit('inviteAccepted', { by: currentUser });
-    }
-
-    callback({
-      success: true,
-      contact: {
-        name: fromUser.name,
-        online: onlineUsers.has(fromLower),
-        avatar: fromUser.avatar || null
+  // Decline invite
+  socket.on('declineInvite', async ({ fromName }, callback) => {
+    try {
+      if (!currentUser) {
+        callback({ success: false, error: 'Not logged in' });
+        return;
       }
-    });
-  });
 
-  // Decline contact invite
-  socket.on('declineInvite', ({ fromName }, callback) => {
-    if (!currentUser) {
-      callback({ success: false, error: 'Not logged in' });
-      return;
+      const currentLower = currentUser.toLowerCase();
+      const fromLower = fromName.toLowerCase();
+
+      const currentUserData = await User.findOne({ nameLower: currentLower });
+      const fromUser = await User.findOne({ nameLower: fromLower });
+
+      currentUserData.pendingInvites = currentUserData.pendingInvites.filter(i => i.from.toLowerCase() !== fromLower);
+      if (fromUser) {
+        fromUser.sentInvites = fromUser.sentInvites.filter(i => i.toLowerCase() !== currentLower);
+        await fromUser.save();
+      }
+
+      await currentUserData.save();
+
+      callback({ success: true });
+    } catch (err) {
+      console.error('declineInvite error:', err);
+      callback({ success: false, error: 'Failed to decline invite' });
     }
-
-    const currentLower = currentUser.toLowerCase();
-    const fromLower = fromName.toLowerCase();
-    const currentUserData = data.users[currentLower];
-    const fromUser = data.users[fromLower];
-
-    // Remove invite
-    currentUserData.pendingInvites = (currentUserData.pendingInvites || []).filter(
-      i => i.from.toLowerCase() !== fromLower
-    );
-
-    if (fromUser) {
-      fromUser.sentInvites = (fromUser.sentInvites || []).filter(
-        i => i.toLowerCase() !== currentLower
-      );
-    }
-
-    saveData();
-
-    callback({ success: true });
   });
 
   // Remove contact
-  socket.on('removeContact', ({ contactName }) => {
-    if (!currentUser) return;
+  socket.on('removeContact', async ({ contactName }) => {
+    try {
+      if (!currentUser) return;
 
-    const currentLower = currentUser.toLowerCase();
-    const user = data.users[currentLower];
-    if (!user) return;
-
-    user.contacts = (user.contacts || []).filter(
-      c => c.toLowerCase() !== contactName.toLowerCase()
-    );
-    saveData();
+      const currentLower = currentUser.toLowerCase();
+      await User.updateOne(
+        { nameLower: currentLower },
+        { $pull: { contacts: { $regex: new RegExp(`^${contactName}$`, 'i') } } }
+      );
+    } catch (err) {
+      console.error('removeContact error:', err);
+    }
   });
 
   // Create group
-  socket.on('createGroup', ({ name, members }, callback) => {
-    if (!currentUser) {
-      callback({ success: false, error: 'Not logged in' });
-      return;
-    }
-
-    // Add creator to members
-    const allMembers = [currentUser, ...members.filter(m => m.toLowerCase() !== currentUser.toLowerCase())];
-
-    const group = {
-      id: Date.now().toString(),
-      name: name.trim(),
-      creator: currentUser,
-      members: allMembers
-    };
-
-    data.groups[group.id] = group;
-    saveData();
-
-    // Notify all online members
-    allMembers.forEach(memberName => {
-      const memberSocket = onlineUsers.get(memberName.toLowerCase());
-      if (memberSocket) {
-        io.to(memberSocket).emit('groupCreated', group);
+  socket.on('createGroup', async ({ name, members }, callback) => {
+    try {
+      if (!currentUser) {
+        callback({ success: false, error: 'Not logged in' });
+        return;
       }
-    });
 
-    callback({ success: true, group });
+      const allMembers = [currentUser, ...members.filter(m => m.toLowerCase() !== currentUser.toLowerCase())];
+      const groupId = Date.now().toString();
+
+      const group = new Group({
+        groupId,
+        name: name.trim(),
+        creator: currentUser,
+        members: allMembers
+      });
+      await group.save();
+
+      const groupData = {
+        id: groupId,
+        name: group.name,
+        creator: group.creator,
+        members: group.members
+      };
+
+      allMembers.forEach(memberName => {
+        const memberSocket = onlineUsers.get(memberName.toLowerCase());
+        if (memberSocket) {
+          io.to(memberSocket).emit('groupCreated', groupData);
+        }
+      });
+
+      callback({ success: true, group: groupData });
+    } catch (err) {
+      console.error('createGroup error:', err);
+      callback({ success: false, error: 'Failed to create group' });
+    }
   });
 
-  // Delete group (only creator can delete)
-  socket.on('deleteGroup', ({ groupId }) => {
-    if (!currentUser) return;
+  // Delete group
+  socket.on('deleteGroup', async ({ groupId }) => {
+    try {
+      if (!currentUser) return;
 
-    const group = data.groups[groupId];
-    if (!group) return;
+      const group = await Group.findOne({ groupId });
+      if (!group) return;
 
-    // Only allow the creator to delete the group
-    if (group.creator.toLowerCase() !== currentUser.toLowerCase()) {
-      socket.emit('error', { message: 'Only the group creator can delete this group' });
-      return;
-    }
-
-    // Notify all online members
-    group.members.forEach(memberName => {
-      const memberSocket = onlineUsers.get(memberName.toLowerCase());
-      if (memberSocket) {
-        io.to(memberSocket).emit('groupDeleted', groupId);
+      if (group.creator.toLowerCase() !== currentUser.toLowerCase()) {
+        socket.emit('error', { message: 'Only the group creator can delete this group' });
+        return;
       }
-    });
 
-    delete data.groups[groupId];
-    delete data.messages[`group_${groupId}`];
-    saveData();
+      group.members.forEach(memberName => {
+        const memberSocket = onlineUsers.get(memberName.toLowerCase());
+        if (memberSocket) {
+          io.to(memberSocket).emit('groupDeleted', groupId);
+        }
+      });
+
+      await Group.deleteOne({ groupId });
+      await Message.deleteMany({ chatId: `group_${groupId}` });
+    } catch (err) {
+      console.error('deleteGroup error:', err);
+    }
   });
 
   // Send message
-  socket.on('sendMessage', ({ chatId, chatType, recipient, message }) => {
-    if (!currentUser) return;
+  socket.on('sendMessage', async ({ chatId, chatType, recipient, message }) => {
+    try {
+      if (!currentUser) return;
 
-    // Validate image if present
-    if (message.image) {
-      if (!isValidImageData(message.image)) {
-        socket.emit('error', { message: 'Invalid image format' });
-        return;
+      if (message.image) {
+        if (!isValidImageData(message.image)) {
+          socket.emit('error', { message: 'Invalid image format' });
+          return;
+        }
+        if (message.image.length > 7 * 1024 * 1024) {
+          socket.emit('error', { message: 'Image too large' });
+          return;
+        }
       }
-      // Limit image size (5MB in base64 is roughly 6.67MB string)
-      if (message.image.length > 7 * 1024 * 1024) {
-        socket.emit('error', { message: 'Image too large' });
-        return;
-      }
-    }
 
-    // Sanitize text content (prevent any potential script injection)
-    const sanitizedText = message.text ? String(message.text).slice(0, 5000) : '';
+      const sanitizedText = message.text ? String(message.text).slice(0, 5000) : '';
 
-    // Add sender info to message
-    const fullMessage = {
-      text: sanitizedText,
-      image: message.image || null,
-      sent: message.sent,
-      time: message.time,
-      sender: currentUser
-    };
+      const msg = new Message({
+        chatId,
+        text: sanitizedText,
+        image: message.image || null,
+        sender: currentUser,
+        time: message.time
+      });
+      await msg.save();
 
-    // Store message
-    if (!data.messages[chatId]) {
-      data.messages[chatId] = [];
-    }
-    data.messages[chatId].push(fullMessage);
-    saveData();
+      const fullMessage = {
+        text: sanitizedText,
+        image: message.image || null,
+        sent: true,
+        time: message.time,
+        sender: currentUser
+      };
 
-    if (chatType === 'contact') {
-      const recipientLower = recipient.toLowerCase();
-      const recipientUser = data.users[recipientLower];
+      if (chatType === 'contact') {
+        const recipientLower = recipient.toLowerCase();
+        socket.emit('newMessage', { chatId, message: fullMessage });
 
-      // Send to sender
-      socket.emit('newMessage', { chatId, message: fullMessage });
-
-      if (recipientUser) {
-        // Auto-add sender to recipient's contacts if not already there
-        const senderLower = currentUser.toLowerCase();
-        if (!recipientUser.contacts.some(c => c.toLowerCase() === senderLower)) {
-          recipientUser.contacts.push(currentUser);
-          saveData();
-
-          // Notify recipient about new contact if online
+        const recipientUser = await User.findOne({ nameLower: recipientLower });
+        if (recipientUser) {
           const recipientSocket = onlineUsers.get(recipientLower);
-          if (recipientSocket) {
-            io.to(recipientSocket).emit('contactAdded', {
-              name: currentUser,
-              online: true
+          if (recipientSocket && recipientSocket !== socket.id) {
+            const recipientChatId = getChatId(recipientUser.name, currentUser);
+            io.to(recipientSocket).emit('newMessage', {
+              chatId: recipientChatId,
+              message: { ...fullMessage, sent: false }
             });
           }
         }
-
-        // Send message to recipient if online
-        const recipientSocket = onlineUsers.get(recipientLower);
-        if (recipientSocket && recipientSocket !== socket.id) {
-          const recipientChatId = getChatId(recipientUser.name, currentUser);
-          io.to(recipientSocket).emit('newMessage', {
-            chatId: recipientChatId,
-            message: { ...fullMessage, sent: false }
+      } else if (chatType === 'group') {
+        const group = await Group.findOne({ groupId: recipient });
+        if (group) {
+          group.members.forEach(memberName => {
+            const memberSocket = onlineUsers.get(memberName.toLowerCase());
+            if (memberSocket) {
+              const isSender = memberName.toLowerCase() === currentUser.toLowerCase();
+              io.to(memberSocket).emit('newMessage', {
+                chatId,
+                message: { ...fullMessage, sent: isSender }
+              });
+            }
           });
         }
       }
-    } else if (chatType === 'group') {
-      const group = data.groups[recipient];
-      if (group) {
-        group.members.forEach(memberName => {
-          const memberSocket = onlineUsers.get(memberName.toLowerCase());
-          if (memberSocket) {
-            const isSender = memberName.toLowerCase() === currentUser.toLowerCase();
-            io.to(memberSocket).emit('newMessage', {
-              chatId,
-              message: { ...fullMessage, sent: isSender }
-            });
-          }
-        });
-      }
+    } catch (err) {
+      console.error('sendMessage error:', err);
     }
   });
 
-  // Update user profile (avatar, theme, password, username)
-  socket.on('updateProfile', ({ avatar, theme, currentPassword, newPassword, newUsername }, callback) => {
-    if (!currentUser) {
-      callback({ success: false, error: 'Not logged in' });
-      return;
-    }
-
-    const lowerName = currentUser.toLowerCase();
-    const user = data.users[lowerName];
-    if (!user) {
-      callback({ success: false, error: 'User not found' });
-      return;
-    }
-
-    let nameChanged = false;
-    let newName = currentUser;
-
-    // Update username if provided
-    if (newUsername && newUsername.trim() !== currentUser) {
-      const trimmedNewName = newUsername.trim();
-      const newLowerName = trimmedNewName.toLowerCase();
-
-      if (trimmedNewName.length < 2) {
-        callback({ success: false, error: 'Username must be at least 2 characters' });
+  // Update profile
+  socket.on('updateProfile', async ({ avatar, theme, currentPassword, newPassword, newUsername }, callback) => {
+    try {
+      if (!currentUser) {
+        callback({ success: false, error: 'Not logged in' });
         return;
       }
 
-      if (newLowerName !== lowerName && data.users[newLowerName]) {
-        callback({ success: false, error: 'Username is already taken' });
+      const lowerName = currentUser.toLowerCase();
+      const user = await User.findOne({ nameLower: lowerName });
+      if (!user) {
+        callback({ success: false, error: 'User not found' });
         return;
       }
 
-      // Update username in user object
-      user.name = trimmedNewName;
+      let nameChanged = false;
+      let newName = currentUser;
 
-      // Move to new key if lowercase changed
-      if (newLowerName !== lowerName) {
-        data.users[newLowerName] = user;
-        delete data.users[lowerName];
+      // Update username
+      if (newUsername && newUsername.trim() !== currentUser) {
+        const trimmedNewName = newUsername.trim();
+        const newLowerName = trimmedNewName.toLowerCase();
 
-        // Update online users map
+        if (trimmedNewName.length < 2) {
+          callback({ success: false, error: 'Username must be at least 2 characters' });
+          return;
+        }
+
+        if (newLowerName !== lowerName) {
+          const existingUser = await User.findOne({ nameLower: newLowerName });
+          if (existingUser) {
+            callback({ success: false, error: 'Username is already taken' });
+            return;
+          }
+        }
+
+        user.name = trimmedNewName;
+        user.nameLower = newLowerName;
+
+        // Update in all contacts' lists
+        await User.updateMany(
+          { contacts: { $regex: new RegExp(`^${currentUser}$`, 'i') } },
+          { $set: { 'contacts.$[elem]': trimmedNewName } },
+          { arrayFilters: [{ elem: { $regex: new RegExp(`^${currentUser}$`, 'i') } }] }
+        );
+
+        // Update in all groups
+        await Group.updateMany(
+          { creator: { $regex: new RegExp(`^${currentUser}$`, 'i') } },
+          { $set: { creator: trimmedNewName } }
+        );
+        await Group.updateMany(
+          { members: { $regex: new RegExp(`^${currentUser}$`, 'i') } },
+          { $set: { 'members.$[elem]': trimmedNewName } },
+          { arrayFilters: [{ elem: { $regex: new RegExp(`^${currentUser}$`, 'i') } }] }
+        );
+
+        // Update sender in messages
+        await Message.updateMany(
+          { sender: { $regex: new RegExp(`^${currentUser}$`, 'i') } },
+          { $set: { sender: trimmedNewName } }
+        );
+
+        nameChanged = true;
+        newName = trimmedNewName;
+        currentUser = trimmedNewName;
+
         onlineUsers.delete(lowerName);
         onlineUsers.set(newLowerName, socket.id);
       }
 
-      // Update in all contacts' lists
-      Object.values(data.users).forEach(u => {
-        if (u.contacts) {
-          u.contacts = u.contacts.map(c =>
-            c.toLowerCase() === lowerName ? trimmedNewName : c
-          );
+      // Update avatar
+      if (avatar !== undefined) {
+        if (avatar && !isValidImageData(avatar)) {
+          callback({ success: false, error: 'Invalid avatar format' });
+          return;
         }
-        if (u.pendingInvites) {
-          u.pendingInvites = u.pendingInvites.map(inv =>
-            inv.from.toLowerCase() === lowerName ? { ...inv, from: trimmedNewName } : inv
-          );
+        if (avatar && avatar.length > 500 * 1024) {
+          callback({ success: false, error: 'Avatar too large (max 500KB)' });
+          return;
         }
-        if (u.sentInvites) {
-          u.sentInvites = u.sentInvites.map(i =>
-            i.toLowerCase() === lowerName ? trimmedNewName : i
-          );
+        user.avatar = avatar;
+      }
+
+      // Update theme
+      if (theme !== undefined) {
+        const validThemes = ['green', 'blue', 'purple', 'orange', 'dark'];
+        if (!validThemes.includes(theme)) {
+          callback({ success: false, error: 'Invalid theme' });
+          return;
         }
+        user.theme = theme;
+      }
+
+      // Update password
+      if (newPassword) {
+        if (!currentPassword) {
+          callback({ success: false, error: 'Current password required' });
+          return;
+        }
+
+        if (!verifyPassword(currentPassword, user.passwordHash, user.passwordSalt)) {
+          callback({ success: false, error: 'Current password is incorrect' });
+          return;
+        }
+
+        if (newPassword.length < 4) {
+          callback({ success: false, error: 'New password must be at least 4 characters' });
+          return;
+        }
+
+        const { hash, salt } = hashPassword(newPassword);
+        user.passwordHash = hash;
+        user.passwordSalt = salt;
+      }
+
+      await user.save();
+
+      callback({
+        success: true,
+        avatar: user.avatar,
+        theme: user.theme,
+        name: newName,
+        nameChanged
       });
 
-      // Update in all groups
-      Object.values(data.groups).forEach(g => {
-        if (g.creator?.toLowerCase() === lowerName) {
-          g.creator = trimmedNewName;
-        }
-        if (g.members) {
-          g.members = g.members.map(m =>
-            m.toLowerCase() === lowerName ? trimmedNewName : m
-          );
-        }
-      });
-
-      // Update sender in all messages
-      Object.values(data.messages).forEach(msgs => {
-        msgs.forEach(msg => {
-          if (msg.sender?.toLowerCase() === lowerName) {
-            msg.sender = trimmedNewName;
+      // Notify contacts about avatar update
+      if (avatar !== undefined) {
+        for (const contactName of user.contacts || []) {
+          const contactSocket = onlineUsers.get(contactName.toLowerCase());
+          if (contactSocket) {
+            io.to(contactSocket).emit('contactUpdated', {
+              name: currentUser,
+              avatar: user.avatar
+            });
           }
-        });
-      });
-
-      nameChanged = true;
-      newName = trimmedNewName;
-      currentUser = trimmedNewName;
-    }
-
-    // Update avatar if provided
-    if (avatar !== undefined) {
-      if (avatar && !isValidImageData(avatar)) {
-        callback({ success: false, error: 'Invalid avatar format' });
-        return;
-      }
-      if (avatar && avatar.length > 500 * 1024) {
-        callback({ success: false, error: 'Avatar too large (max 500KB)' });
-        return;
-      }
-      user.avatar = avatar;
-    }
-
-    // Update theme if provided
-    if (theme !== undefined) {
-      const validThemes = ['green', 'blue', 'purple', 'orange', 'dark'];
-      if (!validThemes.includes(theme)) {
-        callback({ success: false, error: 'Invalid theme' });
-        return;
-      }
-      user.theme = theme;
-    }
-
-    // Update password if provided
-    if (newPassword) {
-      if (!currentPassword) {
-        callback({ success: false, error: 'Current password required' });
-        return;
-      }
-
-      // Verify current password
-      let passwordValid = false;
-      if (user.passwordHash && user.passwordSalt) {
-        passwordValid = verifyPassword(currentPassword, user.passwordHash, user.passwordSalt);
-      }
-
-      if (!passwordValid) {
-        callback({ success: false, error: 'Current password is incorrect' });
-        return;
-      }
-
-      if (newPassword.length < 4) {
-        callback({ success: false, error: 'New password must be at least 4 characters' });
-        return;
-      }
-
-      const { hash, salt } = hashPassword(newPassword);
-      user.passwordHash = hash;
-      user.passwordSalt = salt;
-    }
-
-    saveData();
-    callback({
-      success: true,
-      avatar: user.avatar,
-      theme: user.theme,
-      name: newName,
-      nameChanged
-    });
-
-    // Notify contacts about avatar update
-    if (avatar !== undefined) {
-      (user.contacts || []).forEach(contactName => {
-        const contactSocket = onlineUsers.get(contactName.toLowerCase());
-        if (contactSocket) {
-          io.to(contactSocket).emit('contactUpdated', {
-            name: currentUser,
-            avatar: user.avatar
-          });
         }
-      });
+      }
+    } catch (err) {
+      console.error('updateProfile error:', err);
+      callback({ success: false, error: 'Failed to update profile' });
     }
   });
 
   // Typing indicators
-  socket.on('startTyping', ({ chatId, chatType, recipient }) => {
+  socket.on('startTyping', async ({ chatId, chatType, recipient }) => {
     if (!currentUser) return;
 
     if (chatType === 'contact') {
@@ -804,7 +800,7 @@ io.on('connection', (socket) => {
         io.to(recipientSocket).emit('userTyping', { chatId, user: currentUser, isTyping: true });
       }
     } else if (chatType === 'group') {
-      const group = data.groups[recipient];
+      const group = await Group.findOne({ groupId: recipient });
       if (group) {
         group.members.forEach(memberName => {
           if (memberName.toLowerCase() !== currentUser.toLowerCase()) {
@@ -818,7 +814,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('stopTyping', ({ chatId, chatType, recipient }) => {
+  socket.on('stopTyping', async ({ chatId, chatType, recipient }) => {
     if (!currentUser) return;
 
     if (chatType === 'contact') {
@@ -827,7 +823,7 @@ io.on('connection', (socket) => {
         io.to(recipientSocket).emit('userTyping', { chatId, user: currentUser, isTyping: false });
       }
     } else if (chatType === 'group') {
-      const group = data.groups[recipient];
+      const group = await Group.findOne({ groupId: recipient });
       if (group) {
         group.members.forEach(memberName => {
           if (memberName.toLowerCase() !== currentUser.toLowerCase()) {
@@ -841,193 +837,238 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Update group (manager only)
-  socket.on('updateGroup', ({ groupId, name, description, avatar }, callback) => {
-    if (!currentUser) {
-      callback({ success: false, error: 'Not logged in' });
-      return;
-    }
-
-    const group = data.groups[groupId];
-    if (!group) {
-      callback({ success: false, error: 'Group not found' });
-      return;
-    }
-
-    if (group.creator.toLowerCase() !== currentUser.toLowerCase()) {
-      callback({ success: false, error: 'Only the group manager can update this group' });
-      return;
-    }
-
-    if (name !== undefined) {
-      group.name = name.trim().slice(0, 50);
-    }
-
-    if (description !== undefined) {
-      group.description = description.trim().slice(0, 200);
-    }
-
-    if (avatar !== undefined) {
-      if (avatar && !isValidImageData(avatar)) {
-        callback({ success: false, error: 'Invalid avatar format' });
+  // Update group
+  socket.on('updateGroup', async ({ groupId, name, description, avatar }, callback) => {
+    try {
+      if (!currentUser) {
+        callback({ success: false, error: 'Not logged in' });
         return;
       }
-      if (avatar && avatar.length > 500 * 1024) {
-        callback({ success: false, error: 'Avatar too large (max 500KB)' });
+
+      const group = await Group.findOne({ groupId });
+      if (!group) {
+        callback({ success: false, error: 'Group not found' });
         return;
       }
-      group.avatar = avatar;
-    }
 
-    saveData();
-
-    // Notify all members
-    group.members.forEach(memberName => {
-      const memberSocket = onlineUsers.get(memberName.toLowerCase());
-      if (memberSocket) {
-        io.to(memberSocket).emit('groupUpdated', group);
+      if (group.creator.toLowerCase() !== currentUser.toLowerCase()) {
+        callback({ success: false, error: 'Only the group manager can update this group' });
+        return;
       }
-    });
 
-    callback({ success: true, group });
+      if (name !== undefined) {
+        group.name = name.trim().slice(0, 50);
+      }
+
+      if (description !== undefined) {
+        group.description = description.trim().slice(0, 200);
+      }
+
+      if (avatar !== undefined) {
+        if (avatar && !isValidImageData(avatar)) {
+          callback({ success: false, error: 'Invalid avatar format' });
+          return;
+        }
+        if (avatar && avatar.length > 500 * 1024) {
+          callback({ success: false, error: 'Avatar too large (max 500KB)' });
+          return;
+        }
+        group.avatar = avatar;
+      }
+
+      await group.save();
+
+      const groupData = {
+        id: group.groupId,
+        name: group.name,
+        creator: group.creator,
+        members: group.members,
+        description: group.description,
+        avatar: group.avatar
+      };
+
+      group.members.forEach(memberName => {
+        const memberSocket = onlineUsers.get(memberName.toLowerCase());
+        if (memberSocket) {
+          io.to(memberSocket).emit('groupUpdated', groupData);
+        }
+      });
+
+      callback({ success: true, group: groupData });
+    } catch (err) {
+      console.error('updateGroup error:', err);
+      callback({ success: false, error: 'Failed to update group' });
+    }
   });
 
-  // Add member to group (manager only)
-  socket.on('addGroupMember', ({ groupId, memberName }, callback) => {
-    if (!currentUser) {
-      callback({ success: false, error: 'Not logged in' });
-      return;
-    }
-
-    const group = data.groups[groupId];
-    if (!group) {
-      callback({ success: false, error: 'Group not found' });
-      return;
-    }
-
-    if (group.creator.toLowerCase() !== currentUser.toLowerCase()) {
-      callback({ success: false, error: 'Only the group manager can add members' });
-      return;
-    }
-
-    const trimmedName = memberName.trim();
-    const lowerName = trimmedName.toLowerCase();
-
-    // Check if user exists
-    const targetUser = data.users[lowerName];
-    if (!targetUser) {
-      callback({ success: false, error: 'User not found' });
-      return;
-    }
-
-    // Check if already a member
-    if (group.members.some(m => m.toLowerCase() === lowerName)) {
-      callback({ success: false, error: 'Already a member' });
-      return;
-    }
-
-    group.members.push(targetUser.name);
-    saveData();
-
-    // Notify all members including new one
-    group.members.forEach(member => {
-      const memberSocket = onlineUsers.get(member.toLowerCase());
-      if (memberSocket) {
-        io.to(memberSocket).emit('groupUpdated', group);
+  // Add group member
+  socket.on('addGroupMember', async ({ groupId, memberName }, callback) => {
+    try {
+      if (!currentUser) {
+        callback({ success: false, error: 'Not logged in' });
+        return;
       }
-    });
 
-    // Send groupCreated to new member so they have the full group
-    const newMemberSocket = onlineUsers.get(lowerName);
-    if (newMemberSocket) {
-      io.to(newMemberSocket).emit('groupCreated', group);
+      const group = await Group.findOne({ groupId });
+      if (!group) {
+        callback({ success: false, error: 'Group not found' });
+        return;
+      }
+
+      if (group.creator.toLowerCase() !== currentUser.toLowerCase()) {
+        callback({ success: false, error: 'Only the group manager can add members' });
+        return;
+      }
+
+      const trimmedName = memberName.trim();
+      const lowerName = trimmedName.toLowerCase();
+
+      const targetUser = await User.findOne({ nameLower: lowerName });
+      if (!targetUser) {
+        callback({ success: false, error: 'User not found' });
+        return;
+      }
+
+      if (group.members.some(m => m.toLowerCase() === lowerName)) {
+        callback({ success: false, error: 'Already a member' });
+        return;
+      }
+
+      group.members.push(targetUser.name);
+      await group.save();
+
+      const groupData = {
+        id: group.groupId,
+        name: group.name,
+        creator: group.creator,
+        members: group.members,
+        description: group.description,
+        avatar: group.avatar
+      };
+
+      group.members.forEach(member => {
+        const memberSocket = onlineUsers.get(member.toLowerCase());
+        if (memberSocket) {
+          io.to(memberSocket).emit('groupUpdated', groupData);
+        }
+      });
+
+      const newMemberSocket = onlineUsers.get(lowerName);
+      if (newMemberSocket) {
+        io.to(newMemberSocket).emit('groupCreated', groupData);
+      }
+
+      callback({ success: true, group: groupData });
+    } catch (err) {
+      console.error('addGroupMember error:', err);
+      callback({ success: false, error: 'Failed to add member' });
     }
-
-    callback({ success: true, group });
   });
 
-  // Remove member from group (manager only)
-  socket.on('removeGroupMember', ({ groupId, memberName }, callback) => {
-    if (!currentUser) {
-      callback({ success: false, error: 'Not logged in' });
-      return;
-    }
-
-    const group = data.groups[groupId];
-    if (!group) {
-      callback({ success: false, error: 'Group not found' });
-      return;
-    }
-
-    if (group.creator.toLowerCase() !== currentUser.toLowerCase()) {
-      callback({ success: false, error: 'Only the group manager can remove members' });
-      return;
-    }
-
-    const lowerName = memberName.toLowerCase();
-
-    // Can't remove the creator
-    if (lowerName === group.creator.toLowerCase()) {
-      callback({ success: false, error: 'Cannot remove the group manager' });
-      return;
-    }
-
-    // Notify member being removed
-    const removedSocket = onlineUsers.get(lowerName);
-    if (removedSocket) {
-      io.to(removedSocket).emit('groupDeleted', groupId);
-    }
-
-    group.members = group.members.filter(m => m.toLowerCase() !== lowerName);
-    saveData();
-
-    // Notify remaining members
-    group.members.forEach(member => {
-      const memberSocket = onlineUsers.get(member.toLowerCase());
-      if (memberSocket) {
-        io.to(memberSocket).emit('groupUpdated', group);
+  // Remove group member
+  socket.on('removeGroupMember', async ({ groupId, memberName }, callback) => {
+    try {
+      if (!currentUser) {
+        callback({ success: false, error: 'Not logged in' });
+        return;
       }
-    });
 
-    callback({ success: true, group });
+      const group = await Group.findOne({ groupId });
+      if (!group) {
+        callback({ success: false, error: 'Group not found' });
+        return;
+      }
+
+      if (group.creator.toLowerCase() !== currentUser.toLowerCase()) {
+        callback({ success: false, error: 'Only the group manager can remove members' });
+        return;
+      }
+
+      const lowerName = memberName.toLowerCase();
+
+      if (lowerName === group.creator.toLowerCase()) {
+        callback({ success: false, error: 'Cannot remove the group manager' });
+        return;
+      }
+
+      const removedSocket = onlineUsers.get(lowerName);
+      if (removedSocket) {
+        io.to(removedSocket).emit('groupDeleted', groupId);
+      }
+
+      group.members = group.members.filter(m => m.toLowerCase() !== lowerName);
+      await group.save();
+
+      const groupData = {
+        id: group.groupId,
+        name: group.name,
+        creator: group.creator,
+        members: group.members,
+        description: group.description,
+        avatar: group.avatar
+      };
+
+      group.members.forEach(member => {
+        const memberSocket = onlineUsers.get(member.toLowerCase());
+        if (memberSocket) {
+          io.to(memberSocket).emit('groupUpdated', groupData);
+        }
+      });
+
+      callback({ success: true, group: groupData });
+    } catch (err) {
+      console.error('removeGroupMember error:', err);
+      callback({ success: false, error: 'Failed to remove member' });
+    }
   });
 
-  // Leave group (any member)
-  socket.on('leaveGroup', ({ groupId }, callback) => {
-    if (!currentUser) {
-      callback({ success: false, error: 'Not logged in' });
-      return;
-    }
-
-    const group = data.groups[groupId];
-    if (!group) {
-      callback({ success: false, error: 'Group not found' });
-      return;
-    }
-
-    const lowerName = currentUser.toLowerCase();
-
-    // Creator can't leave (must delete group instead)
-    if (lowerName === group.creator.toLowerCase()) {
-      callback({ success: false, error: 'Group manager cannot leave. Delete the group instead.' });
-      return;
-    }
-
-    group.members = group.members.filter(m => m.toLowerCase() !== lowerName);
-    saveData();
-
-    // Notify user they left
-    socket.emit('groupDeleted', groupId);
-
-    // Notify remaining members
-    group.members.forEach(member => {
-      const memberSocket = onlineUsers.get(member.toLowerCase());
-      if (memberSocket) {
-        io.to(memberSocket).emit('groupUpdated', group);
+  // Leave group
+  socket.on('leaveGroup', async ({ groupId }, callback) => {
+    try {
+      if (!currentUser) {
+        callback({ success: false, error: 'Not logged in' });
+        return;
       }
-    });
 
-    callback({ success: true });
+      const group = await Group.findOne({ groupId });
+      if (!group) {
+        callback({ success: false, error: 'Group not found' });
+        return;
+      }
+
+      const lowerName = currentUser.toLowerCase();
+
+      if (lowerName === group.creator.toLowerCase()) {
+        callback({ success: false, error: 'Group manager cannot leave. Delete the group instead.' });
+        return;
+      }
+
+      group.members = group.members.filter(m => m.toLowerCase() !== lowerName);
+      await group.save();
+
+      socket.emit('groupDeleted', groupId);
+
+      const groupData = {
+        id: group.groupId,
+        name: group.name,
+        creator: group.creator,
+        members: group.members,
+        description: group.description,
+        avatar: group.avatar
+      };
+
+      group.members.forEach(member => {
+        const memberSocket = onlineUsers.get(member.toLowerCase());
+        if (memberSocket) {
+          io.to(memberSocket).emit('groupUpdated', groupData);
+        }
+      });
+
+      callback({ success: true });
+    } catch (err) {
+      console.error('leaveGroup error:', err);
+      callback({ success: false, error: 'Failed to leave group' });
+    }
   });
 
   // Disconnect
@@ -1039,12 +1080,6 @@ io.on('connection', (socket) => {
     }
   });
 });
-
-// Helper to create consistent chat IDs between two users
-function getChatId(user1, user2) {
-  const sorted = [user1.toLowerCase(), user2.toLowerCase()].sort();
-  return `dm_${sorted[0]}_${sorted[1]}`;
-}
 
 const PORT = process.env.PORT || 3001;
 
