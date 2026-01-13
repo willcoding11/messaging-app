@@ -124,6 +124,8 @@ io.on('connection', (socket) => {
       passwordHash: hash,
       passwordSalt: salt,
       contacts: [],
+      avatar: null,
+      theme: 'green',
       createdAt: Date.now()
     };
     saveData();
@@ -133,7 +135,12 @@ io.on('connection', (socket) => {
     onlineUsers.set(lowerName, socket.id);
 
     console.log(`User registered: ${trimmedName}`);
-    callback({ success: true, name: trimmedName });
+    callback({
+      success: true,
+      name: trimmedName,
+      avatar: null,
+      theme: 'green'
+    });
 
     io.emit('userOnline', { name: trimmedName });
   });
@@ -183,7 +190,12 @@ io.on('connection', (socket) => {
     onlineUsers.set(lowerName, socket.id);
 
     console.log(`User logged in: ${user.name}`);
-    callback({ success: true, name: user.name });
+    callback({
+      success: true,
+      name: user.name,
+      avatar: user.avatar || null,
+      theme: user.theme || 'green'
+    });
 
     io.emit('userOnline', { name: user.name });
   });
@@ -202,12 +214,14 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Get contact details with online status
+    // Get contact details with online status and avatar
     const contactDetails = (user.contacts || []).map(contactName => {
       const contactLower = contactName.toLowerCase();
+      const contactUser = data.users[contactLower];
       return {
         name: contactName,
-        online: onlineUsers.has(contactLower)
+        online: onlineUsers.has(contactLower),
+        avatar: contactUser?.avatar || null
       };
     });
 
@@ -445,6 +459,328 @@ io.on('connection', (socket) => {
         });
       }
     }
+  });
+
+  // Update user profile (avatar, theme, password)
+  socket.on('updateProfile', ({ avatar, theme, currentPassword, newPassword }, callback) => {
+    if (!currentUser) {
+      callback({ success: false, error: 'Not logged in' });
+      return;
+    }
+
+    const lowerName = currentUser.toLowerCase();
+    const user = data.users[lowerName];
+    if (!user) {
+      callback({ success: false, error: 'User not found' });
+      return;
+    }
+
+    // Update avatar if provided
+    if (avatar !== undefined) {
+      if (avatar && !isValidImageData(avatar)) {
+        callback({ success: false, error: 'Invalid avatar format' });
+        return;
+      }
+      if (avatar && avatar.length > 500 * 1024) {
+        callback({ success: false, error: 'Avatar too large (max 500KB)' });
+        return;
+      }
+      user.avatar = avatar;
+    }
+
+    // Update theme if provided
+    if (theme !== undefined) {
+      const validThemes = ['green', 'blue', 'purple', 'orange', 'dark'];
+      if (!validThemes.includes(theme)) {
+        callback({ success: false, error: 'Invalid theme' });
+        return;
+      }
+      user.theme = theme;
+    }
+
+    // Update password if provided
+    if (newPassword) {
+      if (!currentPassword) {
+        callback({ success: false, error: 'Current password required' });
+        return;
+      }
+
+      // Verify current password
+      let passwordValid = false;
+      if (user.passwordHash && user.passwordSalt) {
+        passwordValid = verifyPassword(currentPassword, user.passwordHash, user.passwordSalt);
+      }
+
+      if (!passwordValid) {
+        callback({ success: false, error: 'Current password is incorrect' });
+        return;
+      }
+
+      if (newPassword.length < 4) {
+        callback({ success: false, error: 'New password must be at least 4 characters' });
+        return;
+      }
+
+      const { hash, salt } = hashPassword(newPassword);
+      user.passwordHash = hash;
+      user.passwordSalt = salt;
+    }
+
+    saveData();
+    callback({
+      success: true,
+      avatar: user.avatar,
+      theme: user.theme
+    });
+
+    // Notify contacts about avatar update
+    if (avatar !== undefined) {
+      (user.contacts || []).forEach(contactName => {
+        const contactSocket = onlineUsers.get(contactName.toLowerCase());
+        if (contactSocket) {
+          io.to(contactSocket).emit('contactUpdated', {
+            name: currentUser,
+            avatar: user.avatar
+          });
+        }
+      });
+    }
+  });
+
+  // Typing indicators
+  socket.on('startTyping', ({ chatId, chatType, recipient }) => {
+    if (!currentUser) return;
+
+    if (chatType === 'contact') {
+      const recipientSocket = onlineUsers.get(recipient.toLowerCase());
+      if (recipientSocket) {
+        io.to(recipientSocket).emit('userTyping', { chatId, user: currentUser, isTyping: true });
+      }
+    } else if (chatType === 'group') {
+      const group = data.groups[recipient];
+      if (group) {
+        group.members.forEach(memberName => {
+          if (memberName.toLowerCase() !== currentUser.toLowerCase()) {
+            const memberSocket = onlineUsers.get(memberName.toLowerCase());
+            if (memberSocket) {
+              io.to(memberSocket).emit('userTyping', { chatId, user: currentUser, isTyping: true });
+            }
+          }
+        });
+      }
+    }
+  });
+
+  socket.on('stopTyping', ({ chatId, chatType, recipient }) => {
+    if (!currentUser) return;
+
+    if (chatType === 'contact') {
+      const recipientSocket = onlineUsers.get(recipient.toLowerCase());
+      if (recipientSocket) {
+        io.to(recipientSocket).emit('userTyping', { chatId, user: currentUser, isTyping: false });
+      }
+    } else if (chatType === 'group') {
+      const group = data.groups[recipient];
+      if (group) {
+        group.members.forEach(memberName => {
+          if (memberName.toLowerCase() !== currentUser.toLowerCase()) {
+            const memberSocket = onlineUsers.get(memberName.toLowerCase());
+            if (memberSocket) {
+              io.to(memberSocket).emit('userTyping', { chatId, user: currentUser, isTyping: false });
+            }
+          }
+        });
+      }
+    }
+  });
+
+  // Update group (manager only)
+  socket.on('updateGroup', ({ groupId, name, description, avatar }, callback) => {
+    if (!currentUser) {
+      callback({ success: false, error: 'Not logged in' });
+      return;
+    }
+
+    const group = data.groups[groupId];
+    if (!group) {
+      callback({ success: false, error: 'Group not found' });
+      return;
+    }
+
+    if (group.creator.toLowerCase() !== currentUser.toLowerCase()) {
+      callback({ success: false, error: 'Only the group manager can update this group' });
+      return;
+    }
+
+    if (name !== undefined) {
+      group.name = name.trim().slice(0, 50);
+    }
+
+    if (description !== undefined) {
+      group.description = description.trim().slice(0, 200);
+    }
+
+    if (avatar !== undefined) {
+      if (avatar && !isValidImageData(avatar)) {
+        callback({ success: false, error: 'Invalid avatar format' });
+        return;
+      }
+      if (avatar && avatar.length > 500 * 1024) {
+        callback({ success: false, error: 'Avatar too large (max 500KB)' });
+        return;
+      }
+      group.avatar = avatar;
+    }
+
+    saveData();
+
+    // Notify all members
+    group.members.forEach(memberName => {
+      const memberSocket = onlineUsers.get(memberName.toLowerCase());
+      if (memberSocket) {
+        io.to(memberSocket).emit('groupUpdated', group);
+      }
+    });
+
+    callback({ success: true, group });
+  });
+
+  // Add member to group (manager only)
+  socket.on('addGroupMember', ({ groupId, memberName }, callback) => {
+    if (!currentUser) {
+      callback({ success: false, error: 'Not logged in' });
+      return;
+    }
+
+    const group = data.groups[groupId];
+    if (!group) {
+      callback({ success: false, error: 'Group not found' });
+      return;
+    }
+
+    if (group.creator.toLowerCase() !== currentUser.toLowerCase()) {
+      callback({ success: false, error: 'Only the group manager can add members' });
+      return;
+    }
+
+    const trimmedName = memberName.trim();
+    const lowerName = trimmedName.toLowerCase();
+
+    // Check if user exists
+    const targetUser = data.users[lowerName];
+    if (!targetUser) {
+      callback({ success: false, error: 'User not found' });
+      return;
+    }
+
+    // Check if already a member
+    if (group.members.some(m => m.toLowerCase() === lowerName)) {
+      callback({ success: false, error: 'Already a member' });
+      return;
+    }
+
+    group.members.push(targetUser.name);
+    saveData();
+
+    // Notify all members including new one
+    group.members.forEach(member => {
+      const memberSocket = onlineUsers.get(member.toLowerCase());
+      if (memberSocket) {
+        io.to(memberSocket).emit('groupUpdated', group);
+      }
+    });
+
+    // Send groupCreated to new member so they have the full group
+    const newMemberSocket = onlineUsers.get(lowerName);
+    if (newMemberSocket) {
+      io.to(newMemberSocket).emit('groupCreated', group);
+    }
+
+    callback({ success: true, group });
+  });
+
+  // Remove member from group (manager only)
+  socket.on('removeGroupMember', ({ groupId, memberName }, callback) => {
+    if (!currentUser) {
+      callback({ success: false, error: 'Not logged in' });
+      return;
+    }
+
+    const group = data.groups[groupId];
+    if (!group) {
+      callback({ success: false, error: 'Group not found' });
+      return;
+    }
+
+    if (group.creator.toLowerCase() !== currentUser.toLowerCase()) {
+      callback({ success: false, error: 'Only the group manager can remove members' });
+      return;
+    }
+
+    const lowerName = memberName.toLowerCase();
+
+    // Can't remove the creator
+    if (lowerName === group.creator.toLowerCase()) {
+      callback({ success: false, error: 'Cannot remove the group manager' });
+      return;
+    }
+
+    // Notify member being removed
+    const removedSocket = onlineUsers.get(lowerName);
+    if (removedSocket) {
+      io.to(removedSocket).emit('groupDeleted', groupId);
+    }
+
+    group.members = group.members.filter(m => m.toLowerCase() !== lowerName);
+    saveData();
+
+    // Notify remaining members
+    group.members.forEach(member => {
+      const memberSocket = onlineUsers.get(member.toLowerCase());
+      if (memberSocket) {
+        io.to(memberSocket).emit('groupUpdated', group);
+      }
+    });
+
+    callback({ success: true, group });
+  });
+
+  // Leave group (any member)
+  socket.on('leaveGroup', ({ groupId }, callback) => {
+    if (!currentUser) {
+      callback({ success: false, error: 'Not logged in' });
+      return;
+    }
+
+    const group = data.groups[groupId];
+    if (!group) {
+      callback({ success: false, error: 'Group not found' });
+      return;
+    }
+
+    const lowerName = currentUser.toLowerCase();
+
+    // Creator can't leave (must delete group instead)
+    if (lowerName === group.creator.toLowerCase()) {
+      callback({ success: false, error: 'Group manager cannot leave. Delete the group instead.' });
+      return;
+    }
+
+    group.members = group.members.filter(m => m.toLowerCase() !== lowerName);
+    saveData();
+
+    // Notify user they left
+    socket.emit('groupDeleted', groupId);
+
+    // Notify remaining members
+    group.members.forEach(member => {
+      const memberSocket = onlineUsers.get(member.toLowerCase());
+      if (memberSocket) {
+        io.to(memberSocket).emit('groupUpdated', group);
+      }
+    });
+
+    callback({ success: true });
   });
 
   // Disconnect
