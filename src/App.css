@@ -1084,16 +1084,19 @@ body {
 
 .cropper-container {
   position: relative;
-  width: 100%;
+  width: 400px;
   height: 300px;
   background: #1a1a1a;
   border-radius: 8px;
   overflow: hidden;
-  margin-bottom: 15px;
+  margin: 0 auto 15px;
 }
 
 .cropper-image {
   position: absolute;
+  left: 50%;
+  top: 50%;
+  max-width: none;
   cursor: move;
   user-select: none;
 }

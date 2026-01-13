@@ -470,23 +470,33 @@ function App() {
     const ctx = canvas.getContext('2d');
     const img = new Image();
     img.onload = () => {
-      const size = 200;
-      canvas.width = size;
-      canvas.height = size;
+      const outputSize = 200;
+      canvas.width = outputSize;
+      canvas.height = outputSize;
 
-      const containerWidth = 400;
-      const containerHeight = 300;
-      const centerX = containerWidth / 2;
-      const centerY = containerHeight / 2;
+      // The crop circle/square is 200px centered in the cropper container
+      const cropSize = 200;
 
-      const imgWidth = img.width * cropScale;
-      const imgHeight = img.height * cropScale;
+      // Image center is at center of original image
+      const imgCenterX = img.width / 2;
+      const imgCenterY = img.height / 2;
 
-      const sourceX = (centerX - cropPosition.x - size / 2) / cropScale;
-      const sourceY = (centerY - cropPosition.y - size / 2) / cropScale;
-      const sourceSize = size / cropScale;
+      // cropPosition moves the image, so negative offset gets the crop region
+      // When user drags right (positive x), image shows more of left side
+      const offsetX = -cropPosition.x / cropScale;
+      const offsetY = -cropPosition.y / cropScale;
 
-      ctx.drawImage(img, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
+      // Source rectangle in original image coordinates
+      const sourceSize = cropSize / cropScale;
+      const sourceX = imgCenterX + offsetX - sourceSize / 2;
+      const sourceY = imgCenterY + offsetY - sourceSize / 2;
+
+      // Clamp source coordinates to valid range
+      const clampedSourceX = Math.max(0, Math.min(sourceX, img.width - sourceSize));
+      const clampedSourceY = Math.max(0, Math.min(sourceY, img.height - sourceSize));
+      const clampedSourceSize = Math.min(sourceSize, img.width, img.height);
+
+      ctx.drawImage(img, clampedSourceX, clampedSourceY, clampedSourceSize, clampedSourceSize, 0, 0, outputSize, outputSize);
 
       const croppedBase64 = canvas.toDataURL('image/jpeg', 0.8);
 
@@ -1212,12 +1222,7 @@ function App() {
                 alt="Crop"
                 className="cropper-image"
                 style={{
-                  transform: `translate(${cropPosition.x}px, ${cropPosition.y}px) scale(${cropScale})`,
-                  transformOrigin: 'center center',
-                  left: '50%',
-                  top: '50%',
-                  marginLeft: '-50%',
-                  marginTop: '-50%'
+                  transform: `translate(calc(-50% + ${cropPosition.x}px), calc(-50% + ${cropPosition.y}px)) scale(${cropScale})`
                 }}
                 draggable={false}
               />
