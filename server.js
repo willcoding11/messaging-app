@@ -12,9 +12,36 @@ const __dirname = dirname(__filename);
 // MongoDB Connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/messaging-app';
 
+// Log connection string (hide password for security)
+const sanitizedUri = MONGODB_URI.replace(/:([^@]+)@/, ':****@');
+console.log('Attempting to connect to MongoDB:', sanitizedUri);
+
+let isDbConnected = false;
+
 mongoose.connect(MONGODB_URI)
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('MongoDB connection error:', err));
+  .then(() => {
+    console.log('Successfully connected to MongoDB');
+    isDbConnected = true;
+  })
+  .catch(err => {
+    console.error('MongoDB connection error:', err.message);
+    console.error('Full error:', err);
+  });
+
+mongoose.connection.on('error', err => {
+  console.error('MongoDB error:', err.message);
+  isDbConnected = false;
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.log('MongoDB disconnected');
+  isDbConnected = false;
+});
+
+mongoose.connection.on('reconnected', () => {
+  console.log('MongoDB reconnected');
+  isDbConnected = true;
+});
 
 // Mongoose Schemas
 const userSchema = new mongoose.Schema({
@@ -125,6 +152,13 @@ io.on('connection', (socket) => {
   // Register new user
   socket.on('register', async ({ name, password }, callback) => {
     try {
+      // Check database connection
+      if (mongoose.connection.readyState !== 1) {
+        console.error('Register failed: Database not connected. State:', mongoose.connection.readyState);
+        callback({ success: false, error: 'Database not connected. Please try again.' });
+        return;
+      }
+
       const trimmedName = name.trim();
       const lowerName = trimmedName.toLowerCase();
 
@@ -171,14 +205,22 @@ io.on('connection', (socket) => {
 
       io.emit('userOnline', { name: trimmedName });
     } catch (err) {
-      console.error('Register error:', err);
-      callback({ success: false, error: 'Registration failed' });
+      console.error('Register error:', err.message);
+      console.error('Full register error:', err);
+      callback({ success: false, error: 'Registration failed: ' + err.message });
     }
   });
 
   // Login
   socket.on('login', async ({ name, password }, callback) => {
     try {
+      // Check database connection
+      if (mongoose.connection.readyState !== 1) {
+        console.error('Login failed: Database not connected. State:', mongoose.connection.readyState);
+        callback({ success: false, error: 'Database not connected. Please try again.' });
+        return;
+      }
+
       const trimmedName = name.trim();
       const lowerName = trimmedName.toLowerCase();
 
@@ -211,8 +253,9 @@ io.on('connection', (socket) => {
 
       io.emit('userOnline', { name: user.name });
     } catch (err) {
-      console.error('Login error:', err);
-      callback({ success: false, error: 'Login failed' });
+      console.error('Login error:', err.message);
+      console.error('Full login error:', err);
+      callback({ success: false, error: 'Login failed: ' + err.message });
     }
   });
 
