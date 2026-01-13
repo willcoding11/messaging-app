@@ -25,6 +25,8 @@ function App() {
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [contactError, setContactError] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -215,24 +217,54 @@ function App() {
     // Check file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       alert('Image too large. Max size is 5MB.');
+      e.target.value = '';
       return;
     }
 
     // Check file type
     if (!file.type.startsWith('image/')) {
       alert('Please select an image file.');
+      e.target.value = '';
       return;
     }
 
+    // Reset input immediately
+    e.target.value = '';
+
+    setIsUploading(true);
+    setUploadProgress(0);
+
     const reader = new FileReader();
+
+    reader.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const progress = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(progress);
+      }
+    };
+
     reader.onload = (event) => {
       const base64 = event.target?.result;
-      sendMessage('', base64);
+      if (base64) {
+        setUploadProgress(100);
+        sendMessage('', base64);
+      }
+      setIsUploading(false);
+      setUploadProgress(0);
     };
-    reader.readAsDataURL(file);
 
-    // Reset input
-    e.target.value = '';
+    reader.onerror = () => {
+      alert('Failed to read image. Please try again.');
+      setIsUploading(false);
+      setUploadProgress(0);
+    };
+
+    reader.onabort = () => {
+      setIsUploading(false);
+      setUploadProgress(0);
+    };
+
+    reader.readAsDataURL(file);
   };
 
   const getLastMessage = (chatId) => {
@@ -404,29 +436,50 @@ function App() {
               <div ref={messagesEndRef} />
             </div>
             <div className="chat-input-area">
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleImageSelect}
-                accept="image/*"
-                style={{ display: 'none' }}
-              />
-              <button
-                className="image-btn"
-                onClick={() => fileInputRef.current?.click()}
-                title="Send image"
-              >
-                📷
-              </button>
-              <input
-                type="text"
-                className="chat-input"
-                value={messageInput}
-                onChange={(e) => setMessageInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-                placeholder="Type a message..."
-              />
-              <button className="send-btn" onClick={() => sendMessage()}>Send</button>
+              {isUploading && (
+                <div className="upload-progress-container">
+                  <div className="upload-progress-bar">
+                    <div
+                      className="upload-progress-fill"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                  <span className="upload-progress-text">Uploading... {uploadProgress}%</span>
+                </div>
+              )}
+              <div className="chat-input-row">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleImageSelect}
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                />
+                <button
+                  className="image-btn"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Send image"
+                  disabled={isUploading}
+                >
+                  📷
+                </button>
+                <input
+                  type="text"
+                  className="chat-input"
+                  value={messageInput}
+                  onChange={(e) => setMessageInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && !isUploading && sendMessage()}
+                  placeholder={isUploading ? "Uploading image..." : "Type a message..."}
+                  disabled={isUploading}
+                />
+                <button
+                  className="send-btn"
+                  onClick={() => sendMessage()}
+                  disabled={isUploading}
+                >
+                  Send
+                </button>
+              </div>
             </div>
           </>
         )}

@@ -224,7 +224,8 @@ body {
   padding: 15px;
   background: #f0f2f5;
   display: flex;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .chat-input {
@@ -552,4 +553,54 @@ body {
 
 .message-image:hover {
   opacity: 0.9;
+}
+
+/* Upload Progress */
+.chat-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.upload-progress-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #e8f5e9;
+  border-radius: 8px;
+}
+
+.upload-progress-bar {
+  flex: 1;
+  height: 8px;
+  background: #c8e6c9;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.upload-progress-fill {
+  height: 100%;
+  background: #075e54;
+  border-radius: 4px;
+  transition: width 0.2s ease;
+}
+
+.upload-progress-text {
+  font-size: 0.85rem;
+  color: #075e54;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Disabled states */
+.image-btn:disabled,
+.send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chat-input:disabled {
+  background: #f0f0f0;
+  cursor: not-allowed;
 }
