@@ -124,6 +124,8 @@ io.on('connection', (socket) => {
       passwordHash: hash,
       passwordSalt: salt,
       contacts: [],
+      pendingInvites: [],
+      sentInvites: [],
       avatar: null,
       theme: 'green',
       createdAt: Date.now()
@@ -233,14 +235,22 @@ io.on('connection', (socket) => {
       }
     });
 
-    // Get messages for user's chats
+    // Get messages for user's chats with correct sent flag
     const userMessages = {};
+
+    // Helper to fix sent flag based on current user
+    const fixMessagesSentFlag = (messages) => {
+      return messages.map(msg => ({
+        ...msg,
+        sent: msg.sender?.toLowerCase() === currentUser.toLowerCase()
+      }));
+    };
 
     // Contact messages
     (user.contacts || []).forEach(contactName => {
       const chatId = getChatId(currentUser, contactName);
       if (data.messages[chatId]) {
-        userMessages[chatId] = data.messages[chatId];
+        userMessages[chatId] = fixMessagesSentFlag(data.messages[chatId]);
       }
     });
 
@@ -248,18 +258,28 @@ io.on('connection', (socket) => {
     userGroups.forEach(group => {
       const chatId = `group_${group.id}`;
       if (data.messages[chatId]) {
-        userMessages[chatId] = data.messages[chatId];
+        userMessages[chatId] = fixMessagesSentFlag(data.messages[chatId]);
       }
+    });
+
+    // Get pending invites for this user
+    const pendingInvites = (user.pendingInvites || []).map(invite => {
+      const inviterUser = data.users[invite.from.toLowerCase()];
+      return {
+        ...invite,
+        avatar: inviterUser?.avatar || null
+      };
     });
 
     callback({
       contacts: contactDetails,
       groups: userGroups,
-      messages: userMessages
+      messages: userMessages,
+      pendingInvites
     });
   });
 
-  // Add contact by name
+  // Send contact invite
   socket.on('addContact', ({ contactName }, callback) => {
     if (!currentUser) {
       callback({ success: false, error: 'Not logged in' });
@@ -269,6 +289,7 @@ io.on('connection', (socket) => {
     const trimmedName = contactName.trim();
     const lowerName = trimmedName.toLowerCase();
     const currentLower = currentUser.toLowerCase();
+    const currentUserData = data.users[currentLower];
 
     // Can't add yourself
     if (lowerName === currentLower) {
@@ -284,23 +305,171 @@ io.on('connection', (socket) => {
     }
 
     // Check if already a contact
-    const userContacts = data.users[currentLower].contacts || [];
+    const userContacts = currentUserData.contacts || [];
     if (userContacts.some(c => c.toLowerCase() === lowerName)) {
       callback({ success: false, error: 'Already in contacts' });
       return;
     }
 
-    // Add to contacts
-    data.users[currentLower].contacts.push(targetUser.name);
+    // Check if invite already sent
+    const sentInvites = currentUserData.sentInvites || [];
+    if (sentInvites.some(i => i.toLowerCase() === lowerName)) {
+      callback({ success: false, error: 'Invite already sent' });
+      return;
+    }
+
+    // Check if they already sent us an invite (auto-accept)
+    const pendingInvites = currentUserData.pendingInvites || [];
+    const existingInvite = pendingInvites.find(i => i.from.toLowerCase() === lowerName);
+    if (existingInvite) {
+      // Auto-accept: both become contacts
+      currentUserData.contacts.push(targetUser.name);
+      targetUser.contacts = targetUser.contacts || [];
+      targetUser.contacts.push(currentUser);
+
+      // Remove from pending
+      currentUserData.pendingInvites = pendingInvites.filter(i => i.from.toLowerCase() !== lowerName);
+      targetUser.sentInvites = (targetUser.sentInvites || []).filter(i => i.toLowerCase() !== currentLower);
+
+      saveData();
+
+      // Notify current user
+      callback({
+        success: true,
+        contact: {
+          name: targetUser.name,
+          online: onlineUsers.has(lowerName),
+          avatar: targetUser.avatar || null
+        },
+        message: 'Contact added!'
+      });
+
+      // Notify target user if online
+      const targetSocket = onlineUsers.get(lowerName);
+      if (targetSocket) {
+        io.to(targetSocket).emit('contactAdded', {
+          name: currentUser,
+          online: true,
+          avatar: currentUserData.avatar || null
+        });
+        io.to(targetSocket).emit('inviteAccepted', { by: currentUser });
+      }
+      return;
+    }
+
+    // Create invite
+    const invite = {
+      from: currentUser,
+      timestamp: Date.now()
+    };
+
+    // Add to target's pending invites
+    targetUser.pendingInvites = targetUser.pendingInvites || [];
+    targetUser.pendingInvites.push(invite);
+
+    // Add to sender's sent invites
+    currentUserData.sentInvites = currentUserData.sentInvites || [];
+    currentUserData.sentInvites.push(targetUser.name);
+
     saveData();
+
+    // Notify target user if online
+    const targetSocket = onlineUsers.get(lowerName);
+    if (targetSocket) {
+      io.to(targetSocket).emit('newInvite', {
+        ...invite,
+        avatar: currentUserData.avatar || null
+      });
+    }
+
+    callback({ success: true, message: 'Invite sent!' });
+  });
+
+  // Accept contact invite
+  socket.on('acceptInvite', ({ fromName }, callback) => {
+    if (!currentUser) {
+      callback({ success: false, error: 'Not logged in' });
+      return;
+    }
+
+    const currentLower = currentUser.toLowerCase();
+    const fromLower = fromName.toLowerCase();
+    const currentUserData = data.users[currentLower];
+    const fromUser = data.users[fromLower];
+
+    if (!fromUser) {
+      callback({ success: false, error: 'User not found' });
+      return;
+    }
+
+    // Check if invite exists
+    const pendingInvites = currentUserData.pendingInvites || [];
+    const invite = pendingInvites.find(i => i.from.toLowerCase() === fromLower);
+    if (!invite) {
+      callback({ success: false, error: 'Invite not found' });
+      return;
+    }
+
+    // Add both as contacts
+    currentUserData.contacts = currentUserData.contacts || [];
+    currentUserData.contacts.push(fromUser.name);
+
+    fromUser.contacts = fromUser.contacts || [];
+    fromUser.contacts.push(currentUser);
+
+    // Remove invite
+    currentUserData.pendingInvites = pendingInvites.filter(i => i.from.toLowerCase() !== fromLower);
+    fromUser.sentInvites = (fromUser.sentInvites || []).filter(i => i.toLowerCase() !== currentLower);
+
+    saveData();
+
+    // Notify inviter if online
+    const fromSocket = onlineUsers.get(fromLower);
+    if (fromSocket) {
+      io.to(fromSocket).emit('contactAdded', {
+        name: currentUser,
+        online: true,
+        avatar: currentUserData.avatar || null
+      });
+      io.to(fromSocket).emit('inviteAccepted', { by: currentUser });
+    }
 
     callback({
       success: true,
       contact: {
-        name: targetUser.name,
-        online: onlineUsers.has(lowerName)
+        name: fromUser.name,
+        online: onlineUsers.has(fromLower),
+        avatar: fromUser.avatar || null
       }
     });
+  });
+
+  // Decline contact invite
+  socket.on('declineInvite', ({ fromName }, callback) => {
+    if (!currentUser) {
+      callback({ success: false, error: 'Not logged in' });
+      return;
+    }
+
+    const currentLower = currentUser.toLowerCase();
+    const fromLower = fromName.toLowerCase();
+    const currentUserData = data.users[currentLower];
+    const fromUser = data.users[fromLower];
+
+    // Remove invite
+    currentUserData.pendingInvites = (currentUserData.pendingInvites || []).filter(
+      i => i.from.toLowerCase() !== fromLower
+    );
+
+    if (fromUser) {
+      fromUser.sentInvites = (fromUser.sentInvites || []).filter(
+        i => i.toLowerCase() !== currentLower
+      );
+    }
+
+    saveData();
+
+    callback({ success: true });
   });
 
   // Remove contact
@@ -461,8 +630,8 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Update user profile (avatar, theme, password)
-  socket.on('updateProfile', ({ avatar, theme, currentPassword, newPassword }, callback) => {
+  // Update user profile (avatar, theme, password, username)
+  socket.on('updateProfile', ({ avatar, theme, currentPassword, newPassword, newUsername }, callback) => {
     if (!currentUser) {
       callback({ success: false, error: 'Not logged in' });
       return;
@@ -473,6 +642,82 @@ io.on('connection', (socket) => {
     if (!user) {
       callback({ success: false, error: 'User not found' });
       return;
+    }
+
+    let nameChanged = false;
+    let newName = currentUser;
+
+    // Update username if provided
+    if (newUsername && newUsername.trim() !== currentUser) {
+      const trimmedNewName = newUsername.trim();
+      const newLowerName = trimmedNewName.toLowerCase();
+
+      if (trimmedNewName.length < 2) {
+        callback({ success: false, error: 'Username must be at least 2 characters' });
+        return;
+      }
+
+      if (newLowerName !== lowerName && data.users[newLowerName]) {
+        callback({ success: false, error: 'Username is already taken' });
+        return;
+      }
+
+      // Update username in user object
+      user.name = trimmedNewName;
+
+      // Move to new key if lowercase changed
+      if (newLowerName !== lowerName) {
+        data.users[newLowerName] = user;
+        delete data.users[lowerName];
+
+        // Update online users map
+        onlineUsers.delete(lowerName);
+        onlineUsers.set(newLowerName, socket.id);
+      }
+
+      // Update in all contacts' lists
+      Object.values(data.users).forEach(u => {
+        if (u.contacts) {
+          u.contacts = u.contacts.map(c =>
+            c.toLowerCase() === lowerName ? trimmedNewName : c
+          );
+        }
+        if (u.pendingInvites) {
+          u.pendingInvites = u.pendingInvites.map(inv =>
+            inv.from.toLowerCase() === lowerName ? { ...inv, from: trimmedNewName } : inv
+          );
+        }
+        if (u.sentInvites) {
+          u.sentInvites = u.sentInvites.map(i =>
+            i.toLowerCase() === lowerName ? trimmedNewName : i
+          );
+        }
+      });
+
+      // Update in all groups
+      Object.values(data.groups).forEach(g => {
+        if (g.creator?.toLowerCase() === lowerName) {
+          g.creator = trimmedNewName;
+        }
+        if (g.members) {
+          g.members = g.members.map(m =>
+            m.toLowerCase() === lowerName ? trimmedNewName : m
+          );
+        }
+      });
+
+      // Update sender in all messages
+      Object.values(data.messages).forEach(msgs => {
+        msgs.forEach(msg => {
+          if (msg.sender?.toLowerCase() === lowerName) {
+            msg.sender = trimmedNewName;
+          }
+        });
+      });
+
+      nameChanged = true;
+      newName = trimmedNewName;
+      currentUser = trimmedNewName;
     }
 
     // Update avatar if provided
@@ -530,7 +775,9 @@ io.on('connection', (socket) => {
     callback({
       success: true,
       avatar: user.avatar,
-      theme: user.theme
+      theme: user.theme,
+      name: newName,
+      nameChanged
     });
 
     // Notify contacts about avatar update

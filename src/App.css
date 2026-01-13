@@ -1010,3 +1010,229 @@ body {
 [data-theme="dark"] .message-time {
   color: #888;
 }
+
+[data-theme="dark"] .contact-checkbox:hover {
+  background: #404040;
+}
+
+[data-theme="dark"] .contact-checkboxes {
+  border-color: #555;
+}
+
+[data-theme="dark"] .group-member-list {
+  border-color: #555;
+}
+
+[data-theme="dark"] .group-member-item {
+  border-color: #555;
+}
+
+[data-theme="dark"] .modal-btn.cancel {
+  background: #404040;
+  color: #fff;
+}
+
+/* Toast Notifications */
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.toast {
+  padding: 15px 20px;
+  border-radius: 8px;
+  color: white;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  animation: slideIn 0.3s ease;
+  max-width: 350px;
+}
+
+.toast.success {
+  background: #28a745;
+}
+
+.toast.error {
+  background: #dc3545;
+}
+
+.toast.info {
+  background: var(--primary);
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Image Cropper Modal */
+.cropper-modal {
+  width: 500px;
+  max-width: 95%;
+}
+
+.cropper-container {
+  position: relative;
+  width: 100%;
+  height: 300px;
+  background: #1a1a1a;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 15px;
+}
+
+.cropper-image {
+  position: absolute;
+  cursor: move;
+  user-select: none;
+}
+
+.cropper-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 200px;
+  height: 200px;
+  border: 3px solid white;
+  border-radius: 50%;
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.5);
+  pointer-events: none;
+}
+
+.cropper-controls {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 15px;
+}
+
+.cropper-controls label {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.cropper-controls input[type="range"] {
+  flex: 1;
+  cursor: pointer;
+}
+
+/* Invites Section */
+.invites-section {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.invites-header {
+  padding: 10px 15px;
+  background: var(--bg-light);
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.invites-badge {
+  background: var(--primary);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.8rem;
+}
+
+.invite-item {
+  padding: 12px 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.invite-info {
+  flex: 1;
+}
+
+.invite-name {
+  font-weight: 500;
+}
+
+.invite-time {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.invite-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.invite-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.invite-btn.accept {
+  background: var(--accent);
+  color: white;
+}
+
+.invite-btn.decline {
+  background: #dc3545;
+  color: white;
+}
+
+.invite-btn:hover {
+  opacity: 0.9;
+}
+
+/* Group message with avatar */
+.message-with-avatar {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.message-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--primary-light);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: bold;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.message-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+[data-theme="dark"] .invites-section {
+  border-color: #555;
+}
+
+[data-theme="dark"] .invite-item {
+  border-color: #555;
+}

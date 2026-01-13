@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
 
 // In production, connect to same origin. In dev, connect to port 3001
@@ -28,7 +28,7 @@ function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  // New state for settings, typing, avatars
+  // Settings state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showGroupSettingsModal, setShowGroupSettingsModal] = useState(false);
   const [userTheme, setUserTheme] = useState('green');
@@ -40,6 +40,7 @@ function App() {
   const [settingsError, setSettingsError] = useState('');
   const [tempAvatar, setTempAvatar] = useState(null);
   const [tempTheme, setTempTheme] = useState('green');
+  const [settingsNewUsername, setSettingsNewUsername] = useState('');
 
   // Group settings state
   const [editGroupName, setEditGroupName] = useState('');
@@ -48,12 +49,38 @@ function App() {
   const [newMemberName, setNewMemberName] = useState('');
   const [groupSettingsError, setGroupSettingsError] = useState('');
 
+  // Invites state
+  const [pendingInvites, setPendingInvites] = useState([]);
+
+  // Toast notifications
+  const [toasts, setToasts] = useState([]);
+
+  // Image cropper state
+  const [showCropper, setShowCropper] = useState(false);
+  const [cropperImage, setCropperImage] = useState(null);
+  const [cropperIsGroup, setCropperIsGroup] = useState(false);
+  const [cropPosition, setCropPosition] = useState({ x: 0, y: 0 });
+  const [cropScale, setCropScale] = useState(1);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const avatarInputRef = useRef(null);
   const groupAvatarInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
+  const cropperRef = useRef(null);
+  const canvasRef = useRef(null);
+
+  // Toast function
+  const showToast = useCallback((message, type = 'info') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3000);
+  }, []);
 
   // Apply theme to document
   useEffect(() => {
@@ -131,8 +158,17 @@ function App() {
       });
     });
 
+    socket.on('newInvite', (invite) => {
+      setPendingInvites(prev => [...prev, invite]);
+      showToast(`${invite.from} wants to add you as a contact`, 'info');
+    });
+
+    socket.on('inviteAccepted', ({ by }) => {
+      showToast(`${by} accepted your contact request`, 'success');
+    });
+
     socket.on('error', ({ message }) => {
-      alert(message);
+      showToast(message, 'error');
     });
 
     return () => {
@@ -145,9 +181,11 @@ function App() {
       socket.off('groupDeleted');
       socket.off('groupUpdated');
       socket.off('userTyping');
+      socket.off('newInvite');
+      socket.off('inviteAccepted');
       socket.off('error');
     };
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -171,6 +209,7 @@ function App() {
           setContacts(data.contacts);
           setGroups(data.groups);
           setMessages(data.messages);
+          setPendingInvites(data.pendingInvites || []);
         });
       } else {
         setAuthError(response.error);
@@ -189,6 +228,7 @@ function App() {
     setCurrentChat(null);
     setUserAvatar(null);
     setUserTheme('green');
+    setPendingInvites([]);
     window.location.reload();
   };
 
@@ -200,24 +240,47 @@ function App() {
 
     socket.emit('addContact', { contactName: newContactName.trim() }, (response) => {
       if (response.success) {
-        setContacts(prev => [...prev, response.contact]);
+        if (response.contact) {
+          setContacts(prev => [...prev, response.contact]);
+        }
         setNewContactName('');
         setContactError('');
         setShowContactModal(false);
+        showToast(response.message || 'Invite sent!', 'success');
       } else {
         setContactError(response.error);
       }
     });
   };
 
-  const removeContact = (contactName) => {
-    if (window.confirm(`Remove ${contactName} from contacts?`)) {
-      socket.emit('removeContact', { contactName });
-      setContacts(prev => prev.filter(c => c.name.toLowerCase() !== contactName.toLowerCase()));
-      if (currentChat?.name?.toLowerCase() === contactName.toLowerCase()) {
-        setCurrentChat(null);
+  const acceptInvite = (fromName) => {
+    socket.emit('acceptInvite', { fromName }, (response) => {
+      if (response.success) {
+        setPendingInvites(prev => prev.filter(i => i.from !== fromName));
+        setContacts(prev => [...prev, response.contact]);
+        showToast(`${fromName} added to contacts`, 'success');
+      } else {
+        showToast(response.error, 'error');
       }
+    });
+  };
+
+  const declineInvite = (fromName) => {
+    socket.emit('declineInvite', { fromName }, (response) => {
+      if (response.success) {
+        setPendingInvites(prev => prev.filter(i => i.from !== fromName));
+        showToast('Invite declined', 'info');
+      }
+    });
+  };
+
+  const removeContact = (contactName) => {
+    socket.emit('removeContact', { contactName });
+    setContacts(prev => prev.filter(c => c.name.toLowerCase() !== contactName.toLowerCase()));
+    if (currentChat?.name?.toLowerCase() === contactName.toLowerCase()) {
+      setCurrentChat(null);
     }
+    showToast('Contact removed', 'info');
   };
 
   const createGroup = () => {
@@ -230,14 +293,14 @@ function App() {
         setSelectedMembers([]);
         setShowGroupModal(false);
         setCurrentTab('groups');
+        showToast('Group created', 'success');
       }
     });
   };
 
   const deleteGroup = (groupId) => {
-    if (window.confirm('Delete this group?')) {
-      socket.emit('deleteGroup', { groupId });
-    }
+    socket.emit('deleteGroup', { groupId });
+    showToast('Group deleted', 'info');
   };
 
   const getChatId = (contactName) => {
@@ -279,7 +342,6 @@ function App() {
     if (!currentChat) return;
     if (!text && !image && !messageInput.trim()) return;
 
-    // Stop typing indicator when sending
     if (isTypingRef.current) {
       isTypingRef.current = false;
       const recipient = currentChat.type === 'contact' ? currentChat.name : currentChat.groupId;
@@ -313,13 +375,13 @@ function App() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      alert('Image too large. Max size is 5MB.');
+      showToast('Image too large. Max size is 5MB.', 'error');
       e.target.value = '';
       return;
     }
 
     if (!file.type.startsWith('image/')) {
-      alert('Please select an image file.');
+      showToast('Please select an image file.', 'error');
       e.target.value = '';
       return;
     }
@@ -345,7 +407,7 @@ function App() {
       setUploadProgress(0);
     };
     reader.onerror = () => {
-      alert('Failed to read image. Please try again.');
+      showToast('Failed to read image. Please try again.', 'error');
       setIsUploading(false);
       setUploadProgress(0);
     };
@@ -360,14 +422,14 @@ function App() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 500 * 1024) {
-      alert('Avatar too large. Max size is 500KB.');
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('Image too large. Max size is 2MB.', 'error');
       e.target.value = '';
       return;
     }
 
     if (!file.type.startsWith('image/')) {
-      alert('Please select an image file.');
+      showToast('Please select an image file.', 'error');
       e.target.value = '';
       return;
     }
@@ -377,18 +439,72 @@ function App() {
     const reader = new FileReader();
     reader.onload = (event) => {
       const base64 = event.target?.result;
-      if (isGroup) {
-        setTempGroupAvatar(base64);
-      } else {
-        setTempAvatar(base64);
-      }
+      setCropperImage(base64);
+      setCropperIsGroup(isGroup);
+      setCropPosition({ x: 0, y: 0 });
+      setCropScale(1);
+      setShowCropper(true);
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleCropMouseDown = (e) => {
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - cropPosition.x, y: e.clientY - cropPosition.y });
+  };
+
+  const handleCropMouseMove = (e) => {
+    if (!isDragging) return;
+    setCropPosition({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y
+    });
+  };
+
+  const handleCropMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const applyCrop = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.onload = () => {
+      const size = 200;
+      canvas.width = size;
+      canvas.height = size;
+
+      const containerWidth = 400;
+      const containerHeight = 300;
+      const centerX = containerWidth / 2;
+      const centerY = containerHeight / 2;
+
+      const imgWidth = img.width * cropScale;
+      const imgHeight = img.height * cropScale;
+
+      const sourceX = (centerX - cropPosition.x - size / 2) / cropScale;
+      const sourceY = (centerY - cropPosition.y - size / 2) / cropScale;
+      const sourceSize = size / cropScale;
+
+      ctx.drawImage(img, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
+
+      const croppedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+
+      if (cropperIsGroup) {
+        setTempGroupAvatar(croppedBase64);
+      } else {
+        setTempAvatar(croppedBase64);
+      }
+      setShowCropper(false);
+      setCropperImage(null);
+    };
+    img.src = cropperImage;
   };
 
   const openSettingsModal = () => {
     setTempAvatar(userAvatar);
     setTempTheme(userTheme);
+    setSettingsNewUsername(userName);
     setSettingsCurrentPassword('');
     setSettingsNewPassword('');
     setSettingsConfirmPassword('');
@@ -397,7 +513,6 @@ function App() {
   };
 
   const saveSettings = () => {
-    // Validate password change if attempting
     if (settingsNewPassword || settingsConfirmPassword) {
       if (!settingsCurrentPassword) {
         setSettingsError('Current password required to change password');
@@ -415,7 +530,8 @@ function App() {
 
     const updates = {
       avatar: tempAvatar,
-      theme: tempTheme
+      theme: tempTheme,
+      newUsername: settingsNewUsername
     };
 
     if (settingsNewPassword) {
@@ -427,7 +543,12 @@ function App() {
       if (response.success) {
         setUserAvatar(response.avatar);
         setUserTheme(response.theme);
+        if (response.nameChanged) {
+          setUserName(response.name);
+          showToast('Username changed successfully', 'success');
+        }
         setShowSettingsModal(false);
+        showToast('Settings saved', 'success');
       } else {
         setSettingsError(response.error);
       }
@@ -458,6 +579,7 @@ function App() {
     }, (response) => {
       if (response.success) {
         setShowGroupSettingsModal(false);
+        showToast('Group settings saved', 'success');
       } else {
         setGroupSettingsError(response.error);
       }
@@ -474,6 +596,7 @@ function App() {
       if (response.success) {
         setNewMemberName('');
         setGroupSettingsError('');
+        showToast('Member added', 'success');
       } else {
         setGroupSettingsError(response.error);
       }
@@ -482,13 +605,14 @@ function App() {
 
   const removeGroupMember = (memberName) => {
     if (!currentChat?.groupId) return;
-    if (!window.confirm(`Remove ${memberName} from the group?`)) return;
 
     socket.emit('removeGroupMember', {
       groupId: currentChat.groupId,
       memberName
     }, (response) => {
-      if (!response.success) {
+      if (response.success) {
+        showToast('Member removed', 'info');
+      } else {
         setGroupSettingsError(response.error);
       }
     });
@@ -496,14 +620,14 @@ function App() {
 
   const leaveGroup = () => {
     if (!currentChat?.groupId) return;
-    if (!window.confirm('Are you sure you want to leave this group?')) return;
 
     socket.emit('leaveGroup', { groupId: currentChat.groupId }, (response) => {
       if (response.success) {
         setShowGroupSettingsModal(false);
         setCurrentChat(null);
+        showToast('Left group', 'info');
       } else {
-        alert(response.error);
+        showToast(response.error, 'error');
       }
     });
   };
@@ -524,19 +648,9 @@ function App() {
     return `${users[0]} and ${users.length - 1} others are typing`;
   };
 
-  const renderAvatar = (name, avatar, isGroup = false, size = 'normal') => {
-    const sizeClass = size === 'large' ? 'settings-avatar' : 'avatar';
-    const groupClass = isGroup ? 'group-avatar' : '';
-
-    return (
-      <div className={`${sizeClass} ${groupClass}`}>
-        {avatar ? (
-          <img src={avatar} alt={name} />
-        ) : (
-          name?.charAt(0).toUpperCase()
-        )}
-      </div>
-    );
+  const getMemberAvatar = (memberName) => {
+    const contact = contacts.find(c => c.name.toLowerCase() === memberName.toLowerCase());
+    return contact?.avatar || null;
   };
 
   // Auth Screen
@@ -594,6 +708,18 @@ function App() {
   // Main App
   return (
     <div className="container">
+      {/* Toast Container */}
+      <div className="toast-container">
+        {toasts.map(toast => (
+          <div key={toast.id} className={`toast ${toast.type}`}>
+            {toast.message}
+          </div>
+        ))}
+      </div>
+
+      {/* Hidden canvas for cropping */}
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
+
       {/* Sidebar */}
       <div className="sidebar">
         <div className="sidebar-header">
@@ -614,12 +740,37 @@ function App() {
           <button className="header-btn" style={{ background: 'var(--primary)', borderRadius: '5px' }} onClick={() => { setShowContactModal(true); setContactError(''); setNewContactName(''); }}>+ Contact</button>
           <button className="header-btn" style={{ background: 'var(--primary)', borderRadius: '5px' }} onClick={() => {
             if (contacts.length === 0) {
-              alert('Add contacts first!');
+              showToast('Add contacts first!', 'info');
               return;
             }
             setShowGroupModal(true);
           }}>+ Group</button>
         </div>
+
+        {/* Pending Invites */}
+        {pendingInvites.length > 0 && (
+          <div className="invites-section">
+            <div className="invites-header">
+              <span>Invites</span>
+              <span className="invites-badge">{pendingInvites.length}</span>
+            </div>
+            {pendingInvites.map(invite => (
+              <div key={invite.from} className="invite-item">
+                <div className="avatar" style={{ width: 35, height: 35, fontSize: '0.9rem' }}>
+                  {invite.avatar ? <img src={invite.avatar} alt={invite.from} /> : invite.from.charAt(0).toUpperCase()}
+                </div>
+                <div className="invite-info">
+                  <div className="invite-name">{invite.from}</div>
+                </div>
+                <div className="invite-actions">
+                  <button className="invite-btn accept" onClick={() => acceptInvite(invite.from)}>Accept</button>
+                  <button className="invite-btn decline" onClick={() => declineInvite(invite.from)}>Decline</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="tabs">
           <button className={`tab ${currentTab === 'contacts' ? 'active' : ''}`} onClick={() => setCurrentTab('contacts')}>Contacts</button>
           <button className={`tab ${currentTab === 'groups' ? 'active' : ''}`} onClick={() => setCurrentTab('groups')}>Groups</button>
@@ -701,7 +852,14 @@ function App() {
               {(messages[currentChat.id] || []).map((msg, idx) => (
                 <div key={idx} className={`message ${msg.sent ? 'sent' : 'received'}`}>
                   {!msg.sent && currentChat.type === 'group' && (
-                    <div className="message-sender">{msg.sender}</div>
+                    <div className="message-with-avatar">
+                      <div className="message-avatar">
+                        {getMemberAvatar(msg.sender) ? (
+                          <img src={getMemberAvatar(msg.sender)} alt={msg.sender} />
+                        ) : msg.sender?.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="message-sender">{msg.sender}</div>
+                    </div>
                   )}
                   {msg.image && (
                     <img
@@ -782,7 +940,7 @@ function App() {
         <div className="modal-overlay" onClick={() => setShowContactModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>Add Contact</h3>
-            <p style={{ marginBottom: '15px', color: 'var(--text-secondary)' }}>Enter the username of the person you want to add</p>
+            <p style={{ marginBottom: '15px', color: 'var(--text-secondary)' }}>Enter the username of the person you want to add. They will receive an invite.</p>
             <input
               type="text"
               className="modal-input"
@@ -795,7 +953,7 @@ function App() {
             {contactError && <div className="error-message">{contactError}</div>}
             <div className="modal-buttons">
               <button className="modal-btn cancel" onClick={() => setShowContactModal(false)}>Cancel</button>
-              <button className="modal-btn confirm" onClick={addContact}>Add</button>
+              <button className="modal-btn confirm" onClick={addContact}>Send Invite</button>
             </div>
           </div>
         </div>
@@ -867,6 +1025,17 @@ function App() {
                   Remove avatar
                 </button>
               )}
+            </div>
+
+            <div className="settings-section">
+              <h4>Username</h4>
+              <input
+                type="text"
+                className="modal-input"
+                value={settingsNewUsername}
+                onChange={(e) => setSettingsNewUsername(e.target.value)}
+                placeholder="Username"
+              />
             </div>
 
             <div className="settings-section">
@@ -990,8 +1159,8 @@ function App() {
                 {currentGroup.members?.map(member => (
                   <div key={member} className="group-member-item">
                     <div className="avatar">
-                      {contacts.find(c => c.name === member)?.avatar ? (
-                        <img src={contacts.find(c => c.name === member)?.avatar} alt={member} />
+                      {getMemberAvatar(member) ? (
+                        <img src={getMemberAvatar(member)} alt={member} />
                       ) : member.charAt(0).toUpperCase()}
                     </div>
                     <div className="group-member-info">
@@ -1020,6 +1189,54 @@ function App() {
               {isGroupManager && (
                 <button className="modal-btn confirm" onClick={saveGroupSettings}>Save</button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Cropper Modal */}
+      {showCropper && cropperImage && (
+        <div className="modal-overlay" onClick={() => setShowCropper(false)}>
+          <div className="modal cropper-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Crop Image</h3>
+            <div
+              className="cropper-container"
+              ref={cropperRef}
+              onMouseDown={handleCropMouseDown}
+              onMouseMove={handleCropMouseMove}
+              onMouseUp={handleCropMouseUp}
+              onMouseLeave={handleCropMouseUp}
+            >
+              <img
+                src={cropperImage}
+                alt="Crop"
+                className="cropper-image"
+                style={{
+                  transform: `translate(${cropPosition.x}px, ${cropPosition.y}px) scale(${cropScale})`,
+                  transformOrigin: 'center center',
+                  left: '50%',
+                  top: '50%',
+                  marginLeft: '-50%',
+                  marginTop: '-50%'
+                }}
+                draggable={false}
+              />
+              <div className="cropper-overlay"></div>
+            </div>
+            <div className="cropper-controls">
+              <label>Zoom:</label>
+              <input
+                type="range"
+                min="0.5"
+                max="3"
+                step="0.1"
+                value={cropScale}
+                onChange={(e) => setCropScale(parseFloat(e.target.value))}
+              />
+            </div>
+            <div className="modal-buttons">
+              <button className="modal-btn cancel" onClick={() => setShowCropper(false)}>Cancel</button>
+              <button className="modal-btn confirm" onClick={applyCrop}>Apply</button>
             </div>
           </div>
         </div>
