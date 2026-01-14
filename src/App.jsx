@@ -61,6 +61,7 @@ function App() {
   const [cropperIsGroup, setCropperIsGroup] = useState(false);
   const [cropPosition, setCropPosition] = useState({ x: 0, y: 0 });
   const [cropScale, setCropScale] = useState(1);
+  const [minCropScale, setMinCropScale] = useState(0.5);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
@@ -387,6 +388,10 @@ function App() {
     }
 
     e.target.value = '';
+    uploadAndSendImage(file);
+  };
+
+  const uploadAndSendImage = (file) => {
     setIsUploading(true);
     setUploadProgress(0);
 
@@ -418,6 +423,28 @@ function App() {
     reader.readAsDataURL(file);
   };
 
+  const handlePaste = (e) => {
+    if (!currentChat || isUploading) return;
+
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          if (file.size > 5 * 1024 * 1024) {
+            showToast('Image too large. Max size is 5MB.', 'error');
+            return;
+          }
+          uploadAndSendImage(file);
+        }
+        return;
+      }
+    }
+  };
+
   const handleAvatarSelect = (e, isGroup = false) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -439,13 +466,34 @@ function App() {
     const reader = new FileReader();
     reader.onload = (event) => {
       const base64 = event.target?.result;
-      setCropperImage(base64);
+      openCropper(base64, isGroup);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const openCropper = (imageData, isGroup = false) => {
+    // Calculate minimum scale based on image dimensions
+    const img = new Image();
+    img.onload = () => {
+      const cropSize = 200; // The crop circle diameter
+      const smallerDimension = Math.min(img.width, img.height);
+      // Min scale = when smallest dimension exactly fills the crop circle
+      const calculatedMinScale = cropSize / smallerDimension;
+      setMinCropScale(Math.min(calculatedMinScale, 1)); // Cap at 1 if image is smaller than crop
+      setCropperImage(imageData);
       setCropperIsGroup(isGroup);
       setCropPosition({ x: 0, y: 0 });
       setCropScale(1);
       setShowCropper(true);
     };
-    reader.readAsDataURL(file);
+    img.src = imageData;
+  };
+
+  const editExistingAvatar = (isGroup = false) => {
+    const currentImage = isGroup ? tempGroupAvatar : tempAvatar;
+    if (currentImage) {
+      openCropper(currentImage, isGroup);
+    }
   };
 
   const handleCropMouseDown = (e) => {
@@ -661,6 +709,30 @@ function App() {
   const getMemberAvatar = (memberName) => {
     const contact = contacts.find(c => c.name.toLowerCase() === memberName.toLowerCase());
     return contact?.avatar || null;
+  };
+
+  // Parse text and convert URLs to clickable links
+  const renderMessageText = (text) => {
+    const urlRegex = /(https?:\/\/[^\s<]+[^\s<.,;:!?)\]"'])/g;
+    const parts = text.split(urlRegex);
+
+    return parts.map((part, index) => {
+      if (urlRegex.test(part)) {
+        return (
+          <a
+            key={index}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="message-link"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {part}
+          </a>
+        );
+      }
+      return part;
+    });
   };
 
   // Auth Screen
@@ -879,7 +951,7 @@ function App() {
                       onClick={() => window.open(msg.image, '_blank')}
                     />
                   )}
-                  {msg.text && <div className="message-text">{msg.text}</div>}
+                  {msg.text && <div className="message-text">{renderMessageText(msg.text)}</div>}
                   <div className="message-time">{msg.time}</div>
                 </div>
               ))}
@@ -929,6 +1001,7 @@ function App() {
                   value={messageInput}
                   onChange={(e) => { setMessageInput(e.target.value); handleTyping(); }}
                   onKeyDown={(e) => e.key === 'Enter' && !isUploading && sendMessage()}
+                  onPaste={handlePaste}
                   placeholder={isUploading ? "Uploading image..." : "Type a message..."}
                   disabled={isUploading}
                 />
@@ -1028,12 +1101,20 @@ function App() {
                 <div className="settings-avatar-overlay">Change</div>
               </div>
               {tempAvatar && (
-                <button
-                  style={{ marginTop: '10px', background: 'none', border: 'none', color: '#dc3545', cursor: 'pointer' }}
-                  onClick={() => setTempAvatar(null)}
-                >
-                  Remove avatar
-                </button>
+                <div className="avatar-actions">
+                  <button
+                    className="avatar-action-btn edit"
+                    onClick={() => editExistingAvatar(false)}
+                  >
+                    Edit crop
+                  </button>
+                  <button
+                    className="avatar-action-btn remove"
+                    onClick={() => setTempAvatar(null)}
+                  >
+                    Remove
+                  </button>
+                </div>
               )}
             </div>
 
@@ -1122,6 +1203,16 @@ function App() {
                     {tempGroupAvatar ? <img src={tempGroupAvatar} alt="Group" /> : currentGroup.name.charAt(0).toUpperCase()}
                     <div className="settings-avatar-overlay">Change</div>
                   </div>
+                  {tempGroupAvatar && (
+                    <div className="avatar-actions">
+                      <button
+                        className="avatar-action-btn edit"
+                        onClick={() => editExistingAvatar(true)}
+                      >
+                        Edit crop
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="settings-section">
@@ -1232,9 +1323,9 @@ function App() {
               <label>Zoom:</label>
               <input
                 type="range"
-                min="0.5"
+                min={minCropScale}
                 max="3"
-                step="0.1"
+                step="0.01"
                 value={cropScale}
                 onChange={(e) => setCropScale(parseFloat(e.target.value))}
               />

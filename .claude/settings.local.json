@@ -5,7 +5,8 @@
       "Bash(npm install)",
       "Bash(timeout 3 node:*)",
       "Bash(node --check:*)",
-      "Bash(npx vite build:*)"
+      "Bash(npx vite build:*)",
+      "Bash(git add:*)"
     ]
   }
 }
