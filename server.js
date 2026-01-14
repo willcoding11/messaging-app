@@ -650,7 +650,12 @@ io.on('connection', (socket) => {
   // Send message
   socket.on('sendMessage', async ({ chatId, chatType, recipient, message }) => {
     try {
-      if (!currentUser) return;
+      if (!currentUser) {
+        console.log('sendMessage: No current user');
+        return;
+      }
+
+      console.log('sendMessage received:', { chatId, chatType, recipient, hasGame: !!message.game });
 
       if (message.image) {
         if (!isValidImageData(message.image)) {
@@ -687,6 +692,7 @@ io.on('connection', (socket) => {
 
       if (chatType === 'contact') {
         const recipientLower = recipient.toLowerCase();
+        console.log('Emitting newMessage to sender:', { chatId, hasGame: !!fullMessage.game });
         socket.emit('newMessage', { chatId, message: fullMessage });
 
         const recipientUser = await User.findOne({ nameLower: recipientLower });

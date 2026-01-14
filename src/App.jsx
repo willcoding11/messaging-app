@@ -151,6 +151,7 @@ function App() {
     });
 
     socket.on('newMessage', ({ chatId, message }) => {
+      console.log('newMessage received:', { chatId, hasGame: !!message.game, message });
       setMessages(prev => ({
         ...prev,
         [chatId]: [...(prev[chatId] || []), message]
@@ -1077,7 +1078,10 @@ function App() {
 
   // Send game invite
   const sendGameInvite = (gameType) => {
-    if (!currentChat) return;
+    if (!currentChat) {
+      console.log('sendGameInvite: No current chat');
+      return;
+    }
 
     // Don't allow 2-player games in groups
     if (currentChat.type === 'group') {
@@ -1088,6 +1092,11 @@ function App() {
 
     const gameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const game = gameTypes.find(g => g.id === gameType);
+
+    if (!game) {
+      console.log('sendGameInvite: Game type not found', gameType);
+      return;
+    }
 
     const gameMessage = {
       text: '',
@@ -1106,6 +1115,8 @@ function App() {
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
+    console.log('sendGameInvite: Sending game message', gameMessage);
+
     const recipient = currentChat.name;
     socket.emit('sendMessage', {
       chatId: currentChat.id,
@@ -1115,6 +1126,7 @@ function App() {
     });
 
     setShowGamePicker(false);
+    showToast(`Starting ${game.name}...`, 'info');
   };
 
   // Start a rematch with the same game type and players
