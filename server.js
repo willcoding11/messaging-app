@@ -121,9 +121,11 @@ function verifyPassword(password, storedHash, storedSalt) {
   }
 }
 
-// Validate image data
+// Validate image data (base64 or URL)
 function isValidImageData(imageData) {
   if (!imageData || typeof imageData !== 'string') return false;
+
+  // Check for base64 data URLs
   const validPrefixes = [
     'data:image/jpeg;base64,',
     'data:image/jpg;base64,',
@@ -133,7 +135,20 @@ function isValidImageData(imageData) {
     'data:image/svg+xml;base64,',
     'data:image/bmp;base64,'
   ];
-  return validPrefixes.some(prefix => imageData.startsWith(prefix));
+  if (validPrefixes.some(prefix => imageData.startsWith(prefix))) {
+    return true;
+  }
+
+  // Check for valid image/GIF URLs (from trusted sources like Tenor, Giphy)
+  try {
+    const url = new URL(imageData);
+    if (url.protocol !== 'https:') return false;
+    const trustedDomains = ['tenor.com', 'media.tenor.com', 'giphy.com', 'media.giphy.com', 'i.giphy.com'];
+    const hostname = url.hostname.toLowerCase();
+    return trustedDomains.some(domain => hostname === domain || hostname.endsWith('.' + domain));
+  } catch {
+    return false;
+  }
 }
 
 // Runtime state (online users)
@@ -629,7 +644,8 @@ io.on('connection', (socket) => {
           socket.emit('error', { message: 'Invalid image format' });
           return;
         }
-        if (message.image.length > 7 * 1024 * 1024) {
+        // Size check only for base64 images, not URLs
+        if (message.image.startsWith('data:') && message.image.length > 7 * 1024 * 1024) {
           socket.emit('error', { message: 'Image too large' });
           return;
         }

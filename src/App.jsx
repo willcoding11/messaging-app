@@ -68,6 +68,7 @@ function App() {
   // Emoji and GIF picker state
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
+  const [emojiSearch, setEmojiSearch] = useState('');
   const [gifSearch, setGifSearch] = useState('');
   const [gifResults, setGifResults] = useState([]);
   const [gifLoading, setGifLoading] = useState(false);
@@ -757,15 +758,207 @@ function App() {
     return contact?.avatar || null;
   };
 
-  // Emoji categories and data
-  const emojiCategories = {
-    'Smileys': ['😀', '😃', '😄', '😁', '😅', '😂', '🤣', '😊', '😇', '🙂', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏', '😒', '🙄', '😬', '😮‍💨', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢', '🤮', '🤧', '🥵', '🥶', '🥴', '😵', '🤯', '🤠', '🥳', '🥸', '😎', '🤓', '🧐'],
-    'Gestures': ['👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏', '✍️', '💪', '🦾', '🦿'],
-    'Hearts': ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '♥️'],
-    'Animals': ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🐔', '🐧', '🐦', '🐤', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🦟', '🐢', '🐍', '🦎', '🦂', '🐙', '🦑', '🦐', '🦞', '🦀', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊'],
-    'Food': ['🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🫑', '🌽', '🥕', '🫒', '🧄', '🧅', '🥔', '🍠', '🥐', '🥯', '🍞', '🥖', '🥨', '🧀', '🥚', '🍳', '🧈', '🥞', '🧇', '🥓', '🥩', '🍗', '🍖', '🦴', '🌭', '🍔', '🍟', '🍕', '🫓', '🥪', '🥙', '🧆', '🌮', '🌯', '🫔', '🥗', '🥘', '🫕', '🍝', '🍜', '🍲', '🍛', '🍣', '🍱', '🥟', '🦪', '🍤', '🍙', '🍚', '🍘', '🍥', '🥠', '🥮', '🍢', '🍡', '🍧', '🍨', '🍦', '🥧', '🧁', '🍰', '🎂', '🍮', '🍭', '🍬', '🍫', '🍿', '🍩', '🍪', '🌰', '🥜', '🍯', '🥛', '🍼', '🫖', '☕', '🍵', '🧃', '🥤', '🧋', '🍶', '🍺', '🍻', '🥂', '🍷', '🥃', '🍸', '🍹', '🧉', '🍾'],
-    'Activities': ['⚽', '🏀', '🏈', '⚾', '🥎', '🎾', '🏐', '🏉', '🥏', '🎱', '🪀', '🏓', '🏸', '🏒', '🏑', '🥍', '🏏', '🪃', '🥅', '⛳', '🪁', '🏹', '🎣', '🤿', '🥊', '🥋', '🎽', '🛹', '🛼', '🛷', '⛸️', '🥌', '🎿', '⛷️', '🏂', '🪂', '🏋️', '🤼', '🤸', '⛹️', '🤺', '🤾', '🏌️', '🏇', '🧘', '🏄', '🏊', '🤽', '🚣', '🧗', '🚵', '🚴', '🏆', '🥇', '🥈', '🥉', '🏅', '🎖️', '🏵️', '🎗️', '🎫', '🎟️', '🎪', '🎭', '🎨', '🎬', '🎤', '🎧', '🎼', '🎹', '🥁', '🪘', '🎷', '🎺', '🪗', '🎸', '🪕', '🎻', '🎲', '♟️', '🎯', '🎳', '🎮', '🎰', '🧩'],
-    'Objects': ['⌚', '📱', '📲', '💻', '⌨️', '🖥️', '🖨️', '🖱️', '🖲️', '💽', '💾', '💿', '📀', '📼', '📷', '📸', '📹', '🎥', '📽️', '🎞️', '📞', '☎️', '📟', '📠', '📺', '📻', '🎙️', '🎚️', '🎛️', '🧭', '⏱️', '⏲️', '⏰', '🕰️', '⌛', '⏳', '📡', '🔋', '🔌', '💡', '🔦', '🕯️', '🪔', '🧯', '🛢️', '💸', '💵', '💴', '💶', '💷', '🪙', '💰', '💳', '💎', '⚖️', '🪜', '🧰', '🪛', '🔧', '🔨', '⚒️', '🛠️', '⛏️', '🪚', '🔩', '⚙️', '🪤', '🧱', '⛓️', '🧲', '🔫', '💣', '🧨', '🪓', '🔪', '🗡️', '⚔️', '🛡️', '🚬', '⚰️', '🪦', '⚱️', '🏺', '🔮', '📿', '🧿', '💈', '⚗️', '🔭', '🔬', '🕳️', '🩹', '🩺', '💊', '💉', '🩸', '🧬', '🦠', '🧫', '🧪']
+  // Emoji data with searchable keywords
+  const allEmojis = [
+    // Smileys
+    { emoji: '😀', keywords: 'grin happy smile face' },
+    { emoji: '😃', keywords: 'smile happy grin face open' },
+    { emoji: '😄', keywords: 'laugh smile happy grin face' },
+    { emoji: '😁', keywords: 'grin beam happy smile' },
+    { emoji: '😅', keywords: 'sweat smile nervous happy' },
+    { emoji: '😂', keywords: 'joy laugh cry tears happy lol' },
+    { emoji: '🤣', keywords: 'rofl laugh rolling floor lol' },
+    { emoji: '😊', keywords: 'blush smile happy shy' },
+    { emoji: '😇', keywords: 'angel innocent halo smile' },
+    { emoji: '🙂', keywords: 'smile slight happy' },
+    { emoji: '😉', keywords: 'wink flirt smile' },
+    { emoji: '😍', keywords: 'love heart eyes smile' },
+    { emoji: '🥰', keywords: 'love hearts smile affection' },
+    { emoji: '😘', keywords: 'kiss blow love heart' },
+    { emoji: '😋', keywords: 'yum delicious tongue tasty food' },
+    { emoji: '😛', keywords: 'tongue playful silly' },
+    { emoji: '😜', keywords: 'wink tongue crazy silly' },
+    { emoji: '🤪', keywords: 'crazy zany wild silly' },
+    { emoji: '😎', keywords: 'cool sunglasses awesome' },
+    { emoji: '🤓', keywords: 'nerd geek glasses smart' },
+    { emoji: '🥳', keywords: 'party celebrate birthday hat' },
+    { emoji: '😏', keywords: 'smirk smug flirt' },
+    { emoji: '😒', keywords: 'unamused annoyed meh bored' },
+    { emoji: '🙄', keywords: 'eyeroll annoyed whatever' },
+    { emoji: '😔', keywords: 'sad pensive disappointed' },
+    { emoji: '😢', keywords: 'cry sad tear' },
+    { emoji: '😭', keywords: 'sob cry loud tears sad' },
+    { emoji: '😤', keywords: 'angry huff triumph' },
+    { emoji: '😠', keywords: 'angry mad face' },
+    { emoji: '😡', keywords: 'rage angry red mad' },
+    { emoji: '🤬', keywords: 'swear curse angry symbols' },
+    { emoji: '😱', keywords: 'scream fear shock horror' },
+    { emoji: '😨', keywords: 'fear scared afraid' },
+    { emoji: '😰', keywords: 'anxious sweat worried nervous' },
+    { emoji: '😥', keywords: 'sad relieved disappointed' },
+    { emoji: '🤔', keywords: 'think hmm wonder curious' },
+    { emoji: '🤫', keywords: 'shush quiet secret hush' },
+    { emoji: '🤭', keywords: 'oops giggle cover mouth' },
+    { emoji: '😴', keywords: 'sleep zzz tired snore' },
+    { emoji: '🤤', keywords: 'drool hungry yum' },
+    { emoji: '😷', keywords: 'mask sick ill medical' },
+    { emoji: '🤒', keywords: 'sick thermometer ill fever' },
+    { emoji: '🤕', keywords: 'hurt bandage injured' },
+    { emoji: '🤢', keywords: 'nauseated sick green' },
+    { emoji: '🤮', keywords: 'vomit sick throw up' },
+    { emoji: '🥵', keywords: 'hot sweating heat' },
+    { emoji: '🥶', keywords: 'cold freezing ice' },
+    { emoji: '🤯', keywords: 'mind blown exploding head' },
+    { emoji: '🥴', keywords: 'woozy drunk dizzy' },
+    // Gestures
+    { emoji: '👋', keywords: 'wave hello hi bye hand' },
+    { emoji: '👍', keywords: 'thumbs up like good yes approve' },
+    { emoji: '👎', keywords: 'thumbs down dislike bad no' },
+    { emoji: '👌', keywords: 'ok okay perfect hand' },
+    { emoji: '✌️', keywords: 'peace victory hand two' },
+    { emoji: '🤞', keywords: 'fingers crossed luck hope' },
+    { emoji: '🤟', keywords: 'love you hand sign' },
+    { emoji: '🤘', keywords: 'rock metal horns hand' },
+    { emoji: '🤙', keywords: 'call me shaka hang loose' },
+    { emoji: '👈', keywords: 'point left hand' },
+    { emoji: '👉', keywords: 'point right hand' },
+    { emoji: '👆', keywords: 'point up hand' },
+    { emoji: '👇', keywords: 'point down hand' },
+    { emoji: '👏', keywords: 'clap applause hands' },
+    { emoji: '🙌', keywords: 'raise hands celebration hooray' },
+    { emoji: '🙏', keywords: 'pray please thank you hands' },
+    { emoji: '🤝', keywords: 'handshake deal agreement' },
+    { emoji: '💪', keywords: 'muscle strong arm flex' },
+    { emoji: '✊', keywords: 'fist power solidarity' },
+    { emoji: '👊', keywords: 'fist bump punch' },
+    // Hearts
+    { emoji: '❤️', keywords: 'heart love red' },
+    { emoji: '🧡', keywords: 'heart love orange' },
+    { emoji: '💛', keywords: 'heart love yellow' },
+    { emoji: '💚', keywords: 'heart love green' },
+    { emoji: '💙', keywords: 'heart love blue' },
+    { emoji: '💜', keywords: 'heart love purple' },
+    { emoji: '🖤', keywords: 'heart love black' },
+    { emoji: '🤍', keywords: 'heart love white' },
+    { emoji: '💔', keywords: 'broken heart sad love' },
+    { emoji: '💕', keywords: 'hearts two love' },
+    { emoji: '💖', keywords: 'sparkling heart love' },
+    { emoji: '💗', keywords: 'growing heart love' },
+    { emoji: '💘', keywords: 'cupid heart arrow love' },
+    { emoji: '💝', keywords: 'gift heart ribbon love' },
+    // Animals
+    { emoji: '🐶', keywords: 'dog puppy pet animal' },
+    { emoji: '🐱', keywords: 'cat kitty pet animal' },
+    { emoji: '🐭', keywords: 'mouse rat animal' },
+    { emoji: '🐹', keywords: 'hamster pet animal' },
+    { emoji: '🐰', keywords: 'rabbit bunny animal' },
+    { emoji: '🦊', keywords: 'fox animal' },
+    { emoji: '🐻', keywords: 'bear animal' },
+    { emoji: '🐼', keywords: 'panda bear animal' },
+    { emoji: '🐨', keywords: 'koala animal' },
+    { emoji: '🐯', keywords: 'tiger animal' },
+    { emoji: '🦁', keywords: 'lion animal king' },
+    { emoji: '🐮', keywords: 'cow animal' },
+    { emoji: '🐷', keywords: 'pig animal' },
+    { emoji: '🐸', keywords: 'frog animal' },
+    { emoji: '🐵', keywords: 'monkey animal' },
+    { emoji: '🐔', keywords: 'chicken animal bird' },
+    { emoji: '🐧', keywords: 'penguin animal bird' },
+    { emoji: '🦄', keywords: 'unicorn magic animal' },
+    { emoji: '🐝', keywords: 'bee honey insect' },
+    { emoji: '🦋', keywords: 'butterfly insect' },
+    { emoji: '🐢', keywords: 'turtle animal slow' },
+    { emoji: '🐍', keywords: 'snake animal' },
+    { emoji: '🐙', keywords: 'octopus animal sea' },
+    { emoji: '🦈', keywords: 'shark animal sea fish' },
+    { emoji: '🐬', keywords: 'dolphin animal sea' },
+    { emoji: '🐳', keywords: 'whale animal sea' },
+    // Food
+    { emoji: '🍎', keywords: 'apple fruit red food' },
+    { emoji: '🍌', keywords: 'banana fruit yellow food' },
+    { emoji: '🍇', keywords: 'grapes fruit food' },
+    { emoji: '🍓', keywords: 'strawberry fruit food' },
+    { emoji: '🍕', keywords: 'pizza food italian' },
+    { emoji: '🍔', keywords: 'burger hamburger food' },
+    { emoji: '🍟', keywords: 'fries french food' },
+    { emoji: '🌭', keywords: 'hotdog food' },
+    { emoji: '🍿', keywords: 'popcorn movie snack food' },
+    { emoji: '🍩', keywords: 'donut doughnut food sweet' },
+    { emoji: '🍪', keywords: 'cookie food sweet' },
+    { emoji: '🎂', keywords: 'cake birthday food sweet' },
+    { emoji: '🍰', keywords: 'cake slice food sweet' },
+    { emoji: '🍫', keywords: 'chocolate food sweet candy' },
+    { emoji: '🍬', keywords: 'candy food sweet' },
+    { emoji: '🍭', keywords: 'lollipop candy food sweet' },
+    { emoji: '☕', keywords: 'coffee drink hot' },
+    { emoji: '🍵', keywords: 'tea drink hot' },
+    { emoji: '🍺', keywords: 'beer drink alcohol' },
+    { emoji: '🍷', keywords: 'wine drink alcohol' },
+    { emoji: '🍹', keywords: 'cocktail drink tropical' },
+    // Activities & Objects
+    { emoji: '⚽', keywords: 'soccer football ball sport' },
+    { emoji: '🏀', keywords: 'basketball ball sport' },
+    { emoji: '🏈', keywords: 'football american sport' },
+    { emoji: '⚾', keywords: 'baseball ball sport' },
+    { emoji: '🎾', keywords: 'tennis ball sport' },
+    { emoji: '🎮', keywords: 'game video controller gaming' },
+    { emoji: '🎬', keywords: 'movie film clapper' },
+    { emoji: '🎵', keywords: 'music note song' },
+    { emoji: '🎶', keywords: 'music notes song' },
+    { emoji: '🎤', keywords: 'microphone sing karaoke' },
+    { emoji: '🎧', keywords: 'headphones music listen' },
+    { emoji: '🎸', keywords: 'guitar music instrument' },
+    { emoji: '🎹', keywords: 'piano keyboard music' },
+    { emoji: '🎨', keywords: 'art paint palette' },
+    { emoji: '📷', keywords: 'camera photo picture' },
+    { emoji: '💻', keywords: 'laptop computer work' },
+    { emoji: '📱', keywords: 'phone mobile cell' },
+    { emoji: '⌚', keywords: 'watch time' },
+    { emoji: '💡', keywords: 'idea light bulb' },
+    { emoji: '🔥', keywords: 'fire hot lit flame' },
+    { emoji: '⭐', keywords: 'star favorite' },
+    { emoji: '🌟', keywords: 'star glowing sparkle' },
+    { emoji: '✨', keywords: 'sparkles magic stars' },
+    { emoji: '💯', keywords: 'hundred perfect score' },
+    { emoji: '💀', keywords: 'skull dead death' },
+    { emoji: '👻', keywords: 'ghost spooky halloween' },
+    { emoji: '👽', keywords: 'alien ufo space' },
+    { emoji: '🤖', keywords: 'robot machine' },
+    { emoji: '💩', keywords: 'poop poo crap' },
+    { emoji: '🎉', keywords: 'party tada celebration confetti' },
+    { emoji: '🎊', keywords: 'confetti party celebration' },
+    { emoji: '🎁', keywords: 'gift present box' },
+    { emoji: '🏆', keywords: 'trophy winner champion' },
+    { emoji: '🥇', keywords: 'gold medal first winner' },
+    { emoji: '💰', keywords: 'money bag cash' },
+    { emoji: '💵', keywords: 'money dollar cash' },
+    { emoji: '💎', keywords: 'diamond gem jewel' },
+    { emoji: '🚀', keywords: 'rocket space launch' },
+    { emoji: '✈️', keywords: 'airplane plane travel flight' },
+    { emoji: '🚗', keywords: 'car vehicle drive' },
+    { emoji: '🏠', keywords: 'house home' },
+    { emoji: '🌈', keywords: 'rainbow colors' },
+    { emoji: '☀️', keywords: 'sun sunny weather' },
+    { emoji: '🌙', keywords: 'moon night' },
+    { emoji: '⚡', keywords: 'lightning bolt electric' },
+    { emoji: '❄️', keywords: 'snowflake cold winter' },
+    { emoji: '🌸', keywords: 'flower cherry blossom pink' },
+    { emoji: '🌹', keywords: 'rose flower red' },
+    { emoji: '🌻', keywords: 'sunflower flower yellow' },
+    { emoji: '✅', keywords: 'check yes done complete' },
+    { emoji: '❌', keywords: 'x no wrong cross' },
+    { emoji: '❓', keywords: 'question mark' },
+    { emoji: '❗', keywords: 'exclamation mark important' },
+    { emoji: '💤', keywords: 'sleep zzz tired' }
+  ];
+
+  // Get filtered emojis based on search
+  const getFilteredEmojis = () => {
+    if (!emojiSearch.trim()) {
+      return allEmojis;
+    }
+    const search = emojiSearch.toLowerCase();
+    return allEmojis.filter(e => e.keywords.includes(search));
   };
 
   // Search GIFs using Tenor API
@@ -1145,25 +1338,34 @@ function App() {
                 <div className="picker-popup emoji-picker">
                   <div className="picker-header">
                     <span>Emojis</span>
-                    <button className="picker-close" onClick={() => setShowEmojiPicker(false)}>×</button>
+                    <button className="picker-close" onClick={() => { setShowEmojiPicker(false); setEmojiSearch(''); }}>×</button>
                   </div>
-                  <div className="emoji-categories">
-                    {Object.entries(emojiCategories).map(([category, emojis]) => (
-                      <div key={category} className="emoji-category">
-                        <div className="emoji-category-title">{category}</div>
-                        <div className="emoji-grid">
-                          {emojis.map((emoji, idx) => (
-                            <button
-                              key={idx}
-                              className="emoji-btn"
-                              onClick={() => insertEmoji(emoji)}
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                        </div>
+                  <div className="emoji-search">
+                    <input
+                      type="text"
+                      value={emojiSearch}
+                      onChange={(e) => setEmojiSearch(e.target.value)}
+                      placeholder="Search emojis..."
+                      autoFocus
+                    />
+                  </div>
+                  <div className="emoji-grid-container">
+                    {getFilteredEmojis().length === 0 ? (
+                      <div className="emoji-empty">No emojis found</div>
+                    ) : (
+                      <div className="emoji-grid">
+                        {getFilteredEmojis().map((item, idx) => (
+                          <button
+                            key={idx}
+                            className="emoji-btn"
+                            onClick={() => { insertEmoji(item.emoji); setEmojiSearch(''); }}
+                            title={item.keywords}
+                          >
+                            {item.emoji}
+                          </button>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
               )}
