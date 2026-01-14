@@ -65,7 +65,19 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
+  // Emoji and GIF picker state
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [gifSearch, setGifSearch] = useState('');
+  const [gifResults, setGifResults] = useState([]);
+  const [gifLoading, setGifLoading] = useState(false);
+
+  // Sound notification state
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [tempSoundEnabled, setTempSoundEnabled] = useState(true);
+
   const messagesEndRef = useRef(null);
+  const soundEnabledRef = useRef(true);
   const fileInputRef = useRef(null);
   const avatarInputRef = useRef(null);
   const groupAvatarInputRef = useRef(null);
@@ -88,6 +100,34 @@ function App() {
     document.documentElement.setAttribute('data-theme', userTheme);
   }, [userTheme]);
 
+  // Sync sound enabled state with ref
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
+
+  // Play notification sound using Web Audio API
+  const playNotificationSound = useCallback(() => {
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      oscillator.frequency.value = 800;
+      oscillator.type = 'sine';
+
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.3);
+    } catch (e) {
+      // Audio not supported or blocked
+    }
+  }, []);
+
   // Socket event listeners
   useEffect(() => {
     socket.on('userOnline', ({ name }) => {
@@ -107,6 +147,10 @@ function App() {
         ...prev,
         [chatId]: [...(prev[chatId] || []), message]
       }));
+      // Play notification sound for received messages
+      if (!message.sent && soundEnabledRef.current) {
+        playNotificationSound();
+      }
     });
 
     socket.on('contactAdded', (contact) => {
@@ -562,6 +606,7 @@ function App() {
   const openSettingsModal = () => {
     setTempAvatar(userAvatar);
     setTempTheme(userTheme);
+    setTempSoundEnabled(soundEnabled);
     setSettingsNewUsername(userName);
     setSettingsCurrentPassword('');
     setSettingsNewPassword('');
@@ -601,6 +646,7 @@ function App() {
       if (response.success) {
         setUserAvatar(response.avatar);
         setUserTheme(response.theme);
+        setSoundEnabled(tempSoundEnabled);
         if (response.nameChanged) {
           setUserName(response.name);
           showToast('Username changed successfully', 'success');
@@ -709,6 +755,70 @@ function App() {
   const getMemberAvatar = (memberName) => {
     const contact = contacts.find(c => c.name.toLowerCase() === memberName.toLowerCase());
     return contact?.avatar || null;
+  };
+
+  // Emoji categories and data
+  const emojiCategories = {
+    'Smileys': ['😀', '😃', '😄', '😁', '😅', '😂', '🤣', '😊', '😇', '🙂', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏', '😒', '🙄', '😬', '😮‍💨', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢', '🤮', '🤧', '🥵', '🥶', '🥴', '😵', '🤯', '🤠', '🥳', '🥸', '😎', '🤓', '🧐'],
+    'Gestures': ['👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏', '✍️', '💪', '🦾', '🦿'],
+    'Hearts': ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '♥️'],
+    'Animals': ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🐔', '🐧', '🐦', '🐤', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🦟', '🐢', '🐍', '🦎', '🦂', '🐙', '🦑', '🦐', '🦞', '🦀', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊'],
+    'Food': ['🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🫑', '🌽', '🥕', '🫒', '🧄', '🧅', '🥔', '🍠', '🥐', '🥯', '🍞', '🥖', '🥨', '🧀', '🥚', '🍳', '🧈', '🥞', '🧇', '🥓', '🥩', '🍗', '🍖', '🦴', '🌭', '🍔', '🍟', '🍕', '🫓', '🥪', '🥙', '🧆', '🌮', '🌯', '🫔', '🥗', '🥘', '🫕', '🍝', '🍜', '🍲', '🍛', '🍣', '🍱', '🥟', '🦪', '🍤', '🍙', '🍚', '🍘', '🍥', '🥠', '🥮', '🍢', '🍡', '🍧', '🍨', '🍦', '🥧', '🧁', '🍰', '🎂', '🍮', '🍭', '🍬', '🍫', '🍿', '🍩', '🍪', '🌰', '🥜', '🍯', '🥛', '🍼', '🫖', '☕', '🍵', '🧃', '🥤', '🧋', '🍶', '🍺', '🍻', '🥂', '🍷', '🥃', '🍸', '🍹', '🧉', '🍾'],
+    'Activities': ['⚽', '🏀', '🏈', '⚾', '🥎', '🎾', '🏐', '🏉', '🥏', '🎱', '🪀', '🏓', '🏸', '🏒', '🏑', '🥍', '🏏', '🪃', '🥅', '⛳', '🪁', '🏹', '🎣', '🤿', '🥊', '🥋', '🎽', '🛹', '🛼', '🛷', '⛸️', '🥌', '🎿', '⛷️', '🏂', '🪂', '🏋️', '🤼', '🤸', '⛹️', '🤺', '🤾', '🏌️', '🏇', '🧘', '🏄', '🏊', '🤽', '🚣', '🧗', '🚵', '🚴', '🏆', '🥇', '🥈', '🥉', '🏅', '🎖️', '🏵️', '🎗️', '🎫', '🎟️', '🎪', '🎭', '🎨', '🎬', '🎤', '🎧', '🎼', '🎹', '🥁', '🪘', '🎷', '🎺', '🪗', '🎸', '🪕', '🎻', '🎲', '♟️', '🎯', '🎳', '🎮', '🎰', '🧩'],
+    'Objects': ['⌚', '📱', '📲', '💻', '⌨️', '🖥️', '🖨️', '🖱️', '🖲️', '💽', '💾', '💿', '📀', '📼', '📷', '📸', '📹', '🎥', '📽️', '🎞️', '📞', '☎️', '📟', '📠', '📺', '📻', '🎙️', '🎚️', '🎛️', '🧭', '⏱️', '⏲️', '⏰', '🕰️', '⌛', '⏳', '📡', '🔋', '🔌', '💡', '🔦', '🕯️', '🪔', '🧯', '🛢️', '💸', '💵', '💴', '💶', '💷', '🪙', '💰', '💳', '💎', '⚖️', '🪜', '🧰', '🪛', '🔧', '🔨', '⚒️', '🛠️', '⛏️', '🪚', '🔩', '⚙️', '🪤', '🧱', '⛓️', '🧲', '🔫', '💣', '🧨', '🪓', '🔪', '🗡️', '⚔️', '🛡️', '🚬', '⚰️', '🪦', '⚱️', '🏺', '🔮', '📿', '🧿', '💈', '⚗️', '🔭', '🔬', '🕳️', '🩹', '🩺', '💊', '💉', '🩸', '🧬', '🦠', '🧫', '🧪']
+  };
+
+  // Search GIFs using Tenor API
+  const searchGifs = async (query) => {
+    if (!query.trim()) {
+      setGifResults([]);
+      return;
+    }
+
+    setGifLoading(true);
+    try {
+      // Using Tenor API with a public key for demo purposes
+      const response = await fetch(
+        `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ&client_key=simple_messaging_app&limit=20`
+      );
+      const data = await response.json();
+      setGifResults(data.results || []);
+    } catch (error) {
+      console.error('Failed to fetch GIFs:', error);
+      setGifResults([]);
+    }
+    setGifLoading(false);
+  };
+
+  // Load trending GIFs
+  const loadTrendingGifs = async () => {
+    setGifLoading(true);
+    try {
+      const response = await fetch(
+        `https://tenor.googleapis.com/v2/featured?key=AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ&client_key=simple_messaging_app&limit=20`
+      );
+      const data = await response.json();
+      setGifResults(data.results || []);
+    } catch (error) {
+      console.error('Failed to fetch trending GIFs:', error);
+      setGifResults([]);
+    }
+    setGifLoading(false);
+  };
+
+  // Send GIF as message
+  const sendGif = (gifUrl) => {
+    if (!currentChat) return;
+    sendMessage('', gifUrl);
+    setShowGifPicker(false);
+    setGifSearch('');
+    setGifResults([]);
+  };
+
+  // Insert emoji into message
+  const insertEmoji = (emoji) => {
+    setMessageInput(prev => prev + emoji);
+    setShowEmojiPicker(false);
   };
 
   // Parse text and convert URLs to clickable links
@@ -988,12 +1098,28 @@ function App() {
                   style={{ display: 'none' }}
                 />
                 <button
-                  className="image-btn"
+                  className="input-btn"
                   onClick={() => fileInputRef.current?.click()}
                   title="Send image"
                   disabled={isUploading}
                 >
                   📷
+                </button>
+                <button
+                  className="input-btn"
+                  onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowGifPicker(false); }}
+                  title="Emoji"
+                  disabled={isUploading}
+                >
+                  😊
+                </button>
+                <button
+                  className="input-btn"
+                  onClick={() => { setShowGifPicker(!showGifPicker); setShowEmojiPicker(false); if (!showGifPicker) loadTrendingGifs(); }}
+                  title="GIF"
+                  disabled={isUploading}
+                >
+                  GIF
                 </button>
                 <input
                   type="text"
@@ -1013,6 +1139,72 @@ function App() {
                   Send
                 </button>
               </div>
+
+              {/* Emoji Picker */}
+              {showEmojiPicker && (
+                <div className="picker-popup emoji-picker">
+                  <div className="picker-header">
+                    <span>Emojis</span>
+                    <button className="picker-close" onClick={() => setShowEmojiPicker(false)}>×</button>
+                  </div>
+                  <div className="emoji-categories">
+                    {Object.entries(emojiCategories).map(([category, emojis]) => (
+                      <div key={category} className="emoji-category">
+                        <div className="emoji-category-title">{category}</div>
+                        <div className="emoji-grid">
+                          {emojis.map((emoji, idx) => (
+                            <button
+                              key={idx}
+                              className="emoji-btn"
+                              onClick={() => insertEmoji(emoji)}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* GIF Picker */}
+              {showGifPicker && (
+                <div className="picker-popup gif-picker">
+                  <div className="picker-header">
+                    <span>GIFs</span>
+                    <button className="picker-close" onClick={() => setShowGifPicker(false)}>×</button>
+                  </div>
+                  <div className="gif-search">
+                    <input
+                      type="text"
+                      value={gifSearch}
+                      onChange={(e) => setGifSearch(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && searchGifs(gifSearch)}
+                      placeholder="Search GIFs..."
+                    />
+                    <button onClick={() => searchGifs(gifSearch)}>Search</button>
+                  </div>
+                  <div className="gif-grid">
+                    {gifLoading ? (
+                      <div className="gif-loading">Loading...</div>
+                    ) : gifResults.length === 0 ? (
+                      <div className="gif-empty">No GIFs found</div>
+                    ) : (
+                      gifResults.map((gif) => (
+                        <img
+                          key={gif.id}
+                          src={gif.media_formats?.tinygif?.url || gif.media_formats?.gif?.url}
+                          alt={gif.content_description}
+                          className="gif-item"
+                          onClick={() => sendGif(gif.media_formats?.gif?.url)}
+                        />
+                      ))
+                    )}
+                  </div>
+                  <div className="gif-attribution">Powered by Tenor</div>
+                </div>
+              )}
             </div>
           </>
         )}
@@ -1141,6 +1333,19 @@ function App() {
                   />
                 ))}
               </div>
+            </div>
+
+            <div className="settings-section">
+              <h4>Notifications</h4>
+              <label className="toggle-setting">
+                <input
+                  type="checkbox"
+                  checked={tempSoundEnabled}
+                  onChange={(e) => setTempSoundEnabled(e.target.checked)}
+                />
+                <span className="toggle-slider"></span>
+                <span className="toggle-label">Message sound</span>
+              </label>
             </div>
 
             <div className="settings-section">
