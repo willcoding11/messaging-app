@@ -77,6 +77,13 @@ function App() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [tempSoundEnabled, setTempSoundEnabled] = useState(true);
 
+  // Confirmation popup state
+  const [contactToRemove, setContactToRemove] = useState(null);
+
+  // Game state
+  const [showGamePicker, setShowGamePicker] = useState(false);
+  const [activeGame, setActiveGame] = useState(null); // { gameId, gameType, players, state, chatId }
+
   const messagesEndRef = useRef(null);
   const soundEnabledRef = useRef(true);
   const fileInputRef = useRef(null);
@@ -217,6 +224,29 @@ function App() {
       showToast(message, 'error');
     });
 
+    socket.on('gameUpdated', ({ chatId, gameId, game }) => {
+      // Update the game in messages
+      setMessages(prev => {
+        const chatMessages = prev[chatId] || [];
+        return {
+          ...prev,
+          [chatId]: chatMessages.map(msg => {
+            if (msg.game && msg.game.id === gameId) {
+              return { ...msg, game };
+            }
+            return msg;
+          })
+        };
+      });
+      // Update active game if it's the same one
+      setActiveGame(prev => {
+        if (prev && prev.id === gameId) {
+          return { ...game, chatId };
+        }
+        return prev;
+      });
+    });
+
     return () => {
       socket.off('userOnline');
       socket.off('userOffline');
@@ -230,6 +260,7 @@ function App() {
       socket.off('newInvite');
       socket.off('inviteAccepted');
       socket.off('error');
+      socket.off('gameUpdated');
     };
   }, [showToast]);
 
@@ -320,13 +351,19 @@ function App() {
     });
   };
 
-  const removeContact = (contactName) => {
-    socket.emit('removeContact', { contactName });
-    setContacts(prev => prev.filter(c => c.name.toLowerCase() !== contactName.toLowerCase()));
-    if (currentChat?.name?.toLowerCase() === contactName.toLowerCase()) {
+  const confirmRemoveContact = (contactName) => {
+    setContactToRemove(contactName);
+  };
+
+  const removeContact = () => {
+    if (!contactToRemove) return;
+    socket.emit('removeContact', { contactName: contactToRemove });
+    setContacts(prev => prev.filter(c => c.name.toLowerCase() !== contactToRemove.toLowerCase()));
+    if (currentChat?.name?.toLowerCase() === contactToRemove.toLowerCase()) {
       setCurrentChat(null);
     }
     showToast('Contact removed', 'info');
+    setContactToRemove(null);
   };
 
   const createGroup = () => {
@@ -451,7 +488,11 @@ function App() {
       const base64 = event.target?.result;
       if (base64) {
         setUploadProgress(100);
-        sendMessage('', base64);
+        try {
+          sendMessage('', base64);
+        } catch (error) {
+          showToast('Failed to send image. File may be too large.', 'error');
+        }
       }
       setIsUploading(false);
       setUploadProgress(0);
@@ -465,7 +506,13 @@ function App() {
       setIsUploading(false);
       setUploadProgress(0);
     };
-    reader.readAsDataURL(file);
+    try {
+      reader.readAsDataURL(file);
+    } catch (error) {
+      showToast('Failed to process image.', 'error');
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
   };
 
   const handlePaste = (e) => {
@@ -511,7 +558,14 @@ function App() {
     const reader = new FileReader();
     reader.onload = (event) => {
       const base64 = event.target?.result;
-      openCropper(base64, isGroup);
+      if (base64) {
+        openCropper(base64, isGroup);
+      } else {
+        showToast('Failed to load image.', 'error');
+      }
+    };
+    reader.onerror = () => {
+      showToast('Failed to read image file.', 'error');
     };
     reader.readAsDataURL(file);
   };
@@ -1014,6 +1068,239 @@ function App() {
     setShowEmojiPicker(false);
   };
 
+  // Game definitions
+  const gameTypes = [
+    { id: 'tictactoe', name: 'Tic Tac Toe', icon: '⭕', players: 2 },
+    { id: 'connect4', name: 'Connect 4', icon: '🔴', players: 2 },
+    { id: 'rps', name: 'Rock Paper Scissors', icon: '✊', players: 2 }
+  ];
+
+  // Send game invite
+  const sendGameInvite = (gameType) => {
+    if (!currentChat) return;
+
+    // Don't allow 2-player games in groups
+    if (currentChat.type === 'group') {
+      showToast('Games are only available in direct messages', 'error');
+      setShowGamePicker(false);
+      return;
+    }
+
+    const gameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const game = gameTypes.find(g => g.id === gameType);
+
+    const gameMessage = {
+      text: '',
+      game: {
+        id: gameId,
+        type: gameType,
+        name: game.name,
+        icon: game.icon,
+        players: [userName, currentChat.name],
+        currentTurn: userName,
+        state: initializeGameState(gameType),
+        status: 'active',
+        winner: null
+      },
+      sent: true,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    const recipient = currentChat.name;
+    socket.emit('sendMessage', {
+      chatId: currentChat.id,
+      chatType: currentChat.type,
+      recipient,
+      message: gameMessage
+    });
+
+    setShowGamePicker(false);
+  };
+
+  // Initialize game state based on type
+  const initializeGameState = (gameType) => {
+    switch (gameType) {
+      case 'tictactoe':
+        return { board: Array(9).fill(null) };
+      case 'connect4':
+        return { board: Array(42).fill(null) }; // 7 columns x 6 rows
+      case 'rps':
+        return { choices: {} };
+      default:
+        return {};
+    }
+  };
+
+  // Open a game
+  const openGame = (game, chatId) => {
+    setActiveGame({ ...game, chatId });
+  };
+
+  // Make a game move
+  const makeGameMove = (move) => {
+    if (!activeGame) return;
+
+    const updatedGame = { ...activeGame };
+    const isPlayer1 = activeGame.players[0].toLowerCase() === userName.toLowerCase();
+    const playerSymbol = isPlayer1 ? 'X' : 'O';
+
+    switch (activeGame.type) {
+      case 'tictactoe': {
+        if (updatedGame.state.board[move] !== null) return;
+        if (updatedGame.currentTurn.toLowerCase() !== userName.toLowerCase()) {
+          showToast("It's not your turn!", 'error');
+          return;
+        }
+
+        updatedGame.state.board[move] = playerSymbol;
+        const winner = checkTicTacToeWinner(updatedGame.state.board);
+        if (winner) {
+          updatedGame.status = 'finished';
+          updatedGame.winner = winner === 'draw' ? 'draw' : userName;
+        } else {
+          updatedGame.currentTurn = activeGame.players.find(
+            p => p.toLowerCase() !== userName.toLowerCase()
+          );
+        }
+        break;
+      }
+      case 'connect4': {
+        if (updatedGame.currentTurn.toLowerCase() !== userName.toLowerCase()) {
+          showToast("It's not your turn!", 'error');
+          return;
+        }
+
+        // Find lowest empty row in selected column
+        const col = move;
+        let row = -1;
+        for (let r = 5; r >= 0; r--) {
+          if (updatedGame.state.board[r * 7 + col] === null) {
+            row = r;
+            break;
+          }
+        }
+        if (row === -1) return; // Column full
+
+        updatedGame.state.board[row * 7 + col] = playerSymbol;
+        const winner = checkConnect4Winner(updatedGame.state.board);
+        if (winner) {
+          updatedGame.status = 'finished';
+          updatedGame.winner = winner === 'draw' ? 'draw' : userName;
+        } else {
+          updatedGame.currentTurn = activeGame.players.find(
+            p => p.toLowerCase() !== userName.toLowerCase()
+          );
+        }
+        break;
+      }
+      case 'rps': {
+        if (updatedGame.state.choices[userName.toLowerCase()]) {
+          showToast("You already made your choice!", 'error');
+          return;
+        }
+
+        updatedGame.state.choices[userName.toLowerCase()] = move;
+
+        // Check if both players have chosen
+        const player1 = activeGame.players[0].toLowerCase();
+        const player2 = activeGame.players[1].toLowerCase();
+        if (updatedGame.state.choices[player1] && updatedGame.state.choices[player2]) {
+          const result = getRPSWinner(
+            updatedGame.state.choices[player1],
+            updatedGame.state.choices[player2]
+          );
+          updatedGame.status = 'finished';
+          if (result === 0) {
+            updatedGame.winner = 'draw';
+          } else {
+            updatedGame.winner = result === 1 ? activeGame.players[0] : activeGame.players[1];
+          }
+        }
+        break;
+      }
+    }
+
+    // Send the updated game state
+    socket.emit('updateGame', {
+      chatId: activeGame.chatId,
+      gameId: activeGame.id,
+      game: updatedGame
+    });
+
+    setActiveGame(updatedGame);
+  };
+
+  // Check Tic Tac Toe winner
+  const checkTicTacToeWinner = (board) => {
+    const lines = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
+      [0, 3, 6], [1, 4, 7], [2, 5, 8], // cols
+      [0, 4, 8], [2, 4, 6] // diagonals
+    ];
+    for (const [a, b, c] of lines) {
+      if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+        return board[a];
+      }
+    }
+    if (board.every(cell => cell !== null)) return 'draw';
+    return null;
+  };
+
+  // Check Connect 4 winner
+  const checkConnect4Winner = (board) => {
+    // Check horizontal
+    for (let r = 0; r < 6; r++) {
+      for (let c = 0; c < 4; c++) {
+        const idx = r * 7 + c;
+        if (board[idx] && board[idx] === board[idx+1] && board[idx] === board[idx+2] && board[idx] === board[idx+3]) {
+          return board[idx];
+        }
+      }
+    }
+    // Check vertical
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 7; c++) {
+        const idx = r * 7 + c;
+        if (board[idx] && board[idx] === board[idx+7] && board[idx] === board[idx+14] && board[idx] === board[idx+21]) {
+          return board[idx];
+        }
+      }
+    }
+    // Check diagonal (down-right)
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 4; c++) {
+        const idx = r * 7 + c;
+        if (board[idx] && board[idx] === board[idx+8] && board[idx] === board[idx+16] && board[idx] === board[idx+24]) {
+          return board[idx];
+        }
+      }
+    }
+    // Check diagonal (down-left)
+    for (let r = 0; r < 3; r++) {
+      for (let c = 3; c < 7; c++) {
+        const idx = r * 7 + c;
+        if (board[idx] && board[idx] === board[idx+6] && board[idx] === board[idx+12] && board[idx] === board[idx+18]) {
+          return board[idx];
+        }
+      }
+    }
+    if (board.every(cell => cell !== null)) return 'draw';
+    return null;
+  };
+
+  // Get Rock Paper Scissors winner (1 = player1 wins, -1 = player2 wins, 0 = draw)
+  const getRPSWinner = (choice1, choice2) => {
+    if (choice1 === choice2) return 0;
+    if (
+      (choice1 === 'rock' && choice2 === 'scissors') ||
+      (choice1 === 'paper' && choice2 === 'rock') ||
+      (choice1 === 'scissors' && choice2 === 'paper')
+    ) {
+      return 1;
+    }
+    return -1;
+  };
+
   // Parse text and convert URLs to clickable links
   const renderMessageText = (text) => {
     const urlRegex = /(https?:\/\/[^\s<]+[^\s<.,;:!?)\]"'])/g;
@@ -1175,7 +1462,7 @@ function App() {
                     <div className="contact-name">{contact.name}</div>
                     <div className="last-message">{getLastMessage(getChatId(contact.name))}</div>
                   </div>
-                  <button className="delete-btn" onClick={(e) => { e.stopPropagation(); removeContact(contact.name); }}>X</button>
+                  <button className="delete-btn" onClick={(e) => { e.stopPropagation(); confirmRemoveContact(contact.name); }}>X</button>
                 </div>
               ))
             )
@@ -1254,6 +1541,27 @@ function App() {
                       onClick={() => window.open(msg.image, '_blank')}
                     />
                   )}
+                  {msg.game && (
+                    <div
+                      className={`game-invite ${msg.game.status}`}
+                      onClick={() => openGame(msg.game, currentChat.id)}
+                    >
+                      <div className="game-invite-icon">{msg.game.icon}</div>
+                      <div className="game-invite-info">
+                        <div className="game-invite-name">{msg.game.name}</div>
+                        <div className="game-invite-status">
+                          {msg.game.status === 'finished'
+                            ? msg.game.winner === 'draw'
+                              ? "It's a draw!"
+                              : `${msg.game.winner} wins!`
+                            : `${msg.game.currentTurn}'s turn`}
+                        </div>
+                      </div>
+                      <div className="game-invite-action">
+                        {msg.game.status === 'active' ? 'Play' : 'View'}
+                      </div>
+                    </div>
+                  )}
                   {msg.text && <div className="message-text">{renderMessageText(msg.text)}</div>}
                   <div className="message-time">{msg.time}</div>
                 </div>
@@ -1300,7 +1608,7 @@ function App() {
                 </button>
                 <button
                   className="input-btn"
-                  onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowGifPicker(false); }}
+                  onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowGifPicker(false); setShowGamePicker(false); }}
                   title="Emoji"
                   disabled={isUploading}
                 >
@@ -1308,11 +1616,19 @@ function App() {
                 </button>
                 <button
                   className="input-btn"
-                  onClick={() => { setShowGifPicker(!showGifPicker); setShowEmojiPicker(false); if (!showGifPicker) loadTrendingGifs(); }}
+                  onClick={() => { setShowGifPicker(!showGifPicker); setShowEmojiPicker(false); setShowGamePicker(false); if (!showGifPicker) loadTrendingGifs(); }}
                   title="GIF"
                   disabled={isUploading}
                 >
                   GIF
+                </button>
+                <button
+                  className="input-btn"
+                  onClick={() => { setShowGamePicker(!showGamePicker); setShowEmojiPicker(false); setShowGifPicker(false); }}
+                  title="Games"
+                  disabled={isUploading || currentChat?.type === 'group'}
+                >
+                  🎮
                 </button>
                 <input
                   type="text"
@@ -1407,10 +1723,177 @@ function App() {
                   <div className="gif-attribution">Powered by Tenor</div>
                 </div>
               )}
+
+              {/* Game Picker */}
+              {showGamePicker && (
+                <div className="picker-popup game-picker">
+                  <div className="picker-header">
+                    <span>Games</span>
+                    <button className="picker-close" onClick={() => setShowGamePicker(false)}>×</button>
+                  </div>
+                  <div className="game-list">
+                    {gameTypes.map(game => (
+                      <div
+                        key={game.id}
+                        className="game-option"
+                        onClick={() => sendGameInvite(game.id)}
+                      >
+                        <span className="game-option-icon">{game.icon}</span>
+                        <span className="game-option-name">{game.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </>
         )}
       </div>
+
+      {/* Remove Contact Confirmation Modal */}
+      {contactToRemove && (
+        <div className="modal-overlay" onClick={() => setContactToRemove(null)}>
+          <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Remove Contact</h3>
+            <p>Are you sure you want to remove <strong>{contactToRemove}</strong> from your contacts?</p>
+            <div className="modal-buttons">
+              <button className="modal-btn cancel" onClick={() => setContactToRemove(null)}>Cancel</button>
+              <button className="modal-btn danger" onClick={removeContact}>Remove</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Game Modal */}
+      {activeGame && (
+        <div className="modal-overlay" onClick={() => setActiveGame(null)}>
+          <div className="modal game-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="game-modal-header">
+              <h3>{activeGame.name}</h3>
+              <button className="picker-close" onClick={() => setActiveGame(null)}>×</button>
+            </div>
+
+            <div className="game-players">
+              <span className={activeGame.currentTurn?.toLowerCase() === activeGame.players[0]?.toLowerCase() ? 'active-player' : ''}>
+                {activeGame.players[0]} (X)
+              </span>
+              <span>vs</span>
+              <span className={activeGame.currentTurn?.toLowerCase() === activeGame.players[1]?.toLowerCase() ? 'active-player' : ''}>
+                {activeGame.players[1]} (O)
+              </span>
+            </div>
+
+            {activeGame.status === 'finished' && (
+              <div className="game-result">
+                {activeGame.winner === 'draw' ? "It's a draw!" : `${activeGame.winner} wins!`}
+              </div>
+            )}
+
+            {/* Tic Tac Toe Board */}
+            {activeGame.type === 'tictactoe' && (
+              <div className="tictactoe-board">
+                {activeGame.state.board.map((cell, idx) => (
+                  <button
+                    key={idx}
+                    className={`tictactoe-cell ${cell}`}
+                    onClick={() => makeGameMove(idx)}
+                    disabled={activeGame.status === 'finished' || cell !== null}
+                  >
+                    {cell}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Connect 4 Board */}
+            {activeGame.type === 'connect4' && (
+              <div className="connect4-board">
+                <div className="connect4-columns">
+                  {[0, 1, 2, 3, 4, 5, 6].map(col => (
+                    <button
+                      key={col}
+                      className="connect4-drop"
+                      onClick={() => makeGameMove(col)}
+                      disabled={activeGame.status === 'finished'}
+                    >
+                      ↓
+                    </button>
+                  ))}
+                </div>
+                <div className="connect4-grid">
+                  {activeGame.state.board.map((cell, idx) => (
+                    <div
+                      key={idx}
+                      className={`connect4-cell ${cell ? (cell === 'X' ? 'red' : 'yellow') : ''}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Rock Paper Scissors */}
+            {activeGame.type === 'rps' && (
+              <div className="rps-game">
+                {activeGame.status === 'active' ? (
+                  activeGame.state.choices[userName.toLowerCase()] ? (
+                    <div className="rps-waiting">
+                      <p>You chose: {activeGame.state.choices[userName.toLowerCase()]}</p>
+                      <p>Waiting for opponent...</p>
+                    </div>
+                  ) : (
+                    <div className="rps-choices">
+                      <button className="rps-btn" onClick={() => makeGameMove('rock')}>
+                        <span>✊</span>
+                        <span>Rock</span>
+                      </button>
+                      <button className="rps-btn" onClick={() => makeGameMove('paper')}>
+                        <span>✋</span>
+                        <span>Paper</span>
+                      </button>
+                      <button className="rps-btn" onClick={() => makeGameMove('scissors')}>
+                        <span>✌️</span>
+                        <span>Scissors</span>
+                      </button>
+                    </div>
+                  )
+                ) : (
+                  <div className="rps-result">
+                    <div className="rps-final">
+                      <div className="rps-player-choice">
+                        <span>{activeGame.players[0]}</span>
+                        <span className="rps-choice-icon">
+                          {activeGame.state.choices[activeGame.players[0].toLowerCase()] === 'rock' && '✊'}
+                          {activeGame.state.choices[activeGame.players[0].toLowerCase()] === 'paper' && '✋'}
+                          {activeGame.state.choices[activeGame.players[0].toLowerCase()] === 'scissors' && '✌️'}
+                        </span>
+                      </div>
+                      <div className="rps-vs">VS</div>
+                      <div className="rps-player-choice">
+                        <span>{activeGame.players[1]}</span>
+                        <span className="rps-choice-icon">
+                          {activeGame.state.choices[activeGame.players[1].toLowerCase()] === 'rock' && '✊'}
+                          {activeGame.state.choices[activeGame.players[1].toLowerCase()] === 'paper' && '✋'}
+                          {activeGame.state.choices[activeGame.players[1].toLowerCase()] === 'scissors' && '✌️'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeGame.status === 'active' && (
+              <div className="game-turn-indicator">
+                {activeGame.type !== 'rps' && (
+                  activeGame.currentTurn.toLowerCase() === userName.toLowerCase()
+                    ? "Your turn!"
+                    : `Waiting for ${activeGame.currentTurn}...`
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Add Contact Modal */}
       {showContactModal && (
