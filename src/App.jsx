@@ -1117,6 +1117,42 @@ function App() {
     setShowGamePicker(false);
   };
 
+  // Start a rematch with the same game type and players
+  const startRematch = () => {
+    if (!activeGame || !currentChat) return;
+
+    const gameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const game = gameTypes.find(g => g.id === activeGame.type);
+
+    const gameMessage = {
+      text: '',
+      game: {
+        id: gameId,
+        type: activeGame.type,
+        name: game.name,
+        icon: game.icon,
+        players: activeGame.players,
+        currentTurn: userName,
+        state: initializeGameState(activeGame.type),
+        status: 'active',
+        winner: null
+      },
+      sent: true,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    const recipient = activeGame.players.find(p => p.toLowerCase() !== userName.toLowerCase());
+    socket.emit('sendMessage', {
+      chatId: activeGame.chatId,
+      chatType: 'contact',
+      recipient,
+      message: gameMessage
+    });
+
+    setActiveGame(null);
+    showToast('Rematch started!', 'success');
+  };
+
   // Initialize game state based on type
   const initializeGameState = (gameType) => {
     switch (gameType) {
@@ -1542,10 +1578,7 @@ function App() {
                     />
                   )}
                   {msg.game && (
-                    <div
-                      className={`game-invite ${msg.game.status}`}
-                      onClick={() => openGame(msg.game, currentChat.id)}
-                    >
+                    <div className={`game-invite ${msg.game.status}`}>
                       <div className="game-invite-icon">{msg.game.icon}</div>
                       <div className="game-invite-info">
                         <div className="game-invite-name">{msg.game.name}</div>
@@ -1557,9 +1590,12 @@ function App() {
                             : `${msg.game.currentTurn}'s turn`}
                         </div>
                       </div>
-                      <div className="game-invite-action">
-                        {msg.game.status === 'active' ? 'Play' : 'View'}
-                      </div>
+                      <button
+                        className="game-invite-btn"
+                        onClick={() => openGame(msg.game, currentChat.id)}
+                      >
+                        {msg.game.status === 'active' ? `Start ${msg.game.name}` : 'View Result'}
+                      </button>
                     </div>
                   )}
                   {msg.text && <div className="message-text">{renderMessageText(msg.text)}</div>}
@@ -1891,6 +1927,17 @@ function App() {
                 )}
               </div>
             )}
+
+            <div className="game-modal-actions">
+              <button className="game-btn quit" onClick={() => setActiveGame(null)}>
+                Quit
+              </button>
+              {activeGame.status === 'finished' && (
+                <button className="game-btn rematch" onClick={startRematch}>
+                  Rematch
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -1620,20 +1620,14 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 15px;
+  padding: 15px;
   background: var(--bg-light);
-  border-radius: 10px;
-  cursor: pointer;
+  border-radius: 12px;
   margin-bottom: 5px;
-  transition: transform 0.2s;
-}
-
-.game-invite:hover {
-  transform: scale(1.02);
 }
 
 .game-invite.finished {
-  opacity: 0.8;
+  opacity: 0.9;
 }
 
 .game-invite-icon {
@@ -1661,13 +1655,30 @@ body {
   color: var(--text-secondary);
 }
 
-.game-invite-action {
-  padding: 6px 15px;
+.game-invite-btn {
+  padding: 10px 18px;
   background: var(--primary);
   color: white;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  font-weight: 500;
+  border: none;
+  border-radius: 25px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.game-invite-btn:hover {
+  background: var(--primary-dark);
+  transform: scale(1.05);
+}
+
+.game-invite.finished .game-invite-btn {
+  background: var(--text-secondary);
+}
+
+.game-invite.finished .game-invite-btn:hover {
+  background: var(--text-primary);
 }
 
 /* Game Modal */
@@ -1724,6 +1735,45 @@ body {
   margin-top: 15px;
   font-size: 0.95rem;
   color: var(--text-secondary);
+}
+
+/* Game Modal Actions */
+.game-modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  margin-top: 25px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color);
+}
+
+.game-btn {
+  padding: 12px 30px;
+  border: none;
+  border-radius: 25px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.game-btn.quit {
+  background: var(--bg-light);
+  color: var(--text-primary);
+}
+
+.game-btn.quit:hover {
+  background: #e0e0e0;
+}
+
+.game-btn.rematch {
+  background: var(--primary);
+  color: white;
+}
+
+.game-btn.rematch:hover {
+  background: var(--primary-dark);
+  transform: scale(1.05);
 }
 
 /* Tic Tac Toe */
@@ -1954,4 +2004,21 @@ body {
 
 [data-theme="dark"] .game-players span {
   background: #404040;
+}
+
+[data-theme="dark"] .game-btn.quit {
+  background: #404040;
+  color: #fff;
+}
+
+[data-theme="dark"] .game-btn.quit:hover {
+  background: #555;
+}
+
+[data-theme="dark"] .game-modal-actions {
+  border-top-color: #555;
+}
+
+[data-theme="dark"] .game-invite.finished .game-invite-btn {
+  background: #555;
 }
