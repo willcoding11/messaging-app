@@ -73,6 +73,17 @@ const messageSchema = new mongoose.Schema({
   chatId: { type: String, required: true, index: true },
   text: String,
   image: String,
+  game: {
+    id: String,
+    type: String,
+    name: String,
+    icon: String,
+    players: [String],
+    currentTurn: String,
+    state: mongoose.Schema.Types.Mixed,
+    status: String,
+    winner: String
+  },
   sender: String,
   time: String,
   timestamp: { type: Number, default: Date.now }
@@ -325,6 +336,7 @@ io.on('connection', (socket) => {
           userMessages[chatId] = msgs.map(msg => ({
             text: msg.text,
             image: msg.image,
+            game: msg.game || null,
             sender: msg.sender,
             time: msg.time,
             sent: msg.sender?.toLowerCase() === currentUser.toLowerCase()
@@ -340,6 +352,7 @@ io.on('connection', (socket) => {
           userMessages[chatId] = msgs.map(msg => ({
             text: msg.text,
             image: msg.image,
+            game: msg.game || null,
             sender: msg.sender,
             time: msg.time,
             sent: msg.sender?.toLowerCase() === currentUser.toLowerCase()
@@ -657,6 +670,7 @@ io.on('connection', (socket) => {
         chatId,
         text: sanitizedText,
         image: message.image || null,
+        game: message.game || null,
         sender: currentUser,
         time: message.time
       });
@@ -665,6 +679,7 @@ io.on('connection', (socket) => {
       const fullMessage = {
         text: sanitizedText,
         image: message.image || null,
+        game: message.game || null,
         sent: true,
         time: message.time,
         sender: currentUser
@@ -702,6 +717,40 @@ io.on('connection', (socket) => {
       }
     } catch (err) {
       console.error('sendMessage error:', err);
+    }
+  });
+
+  // Update game state
+  socket.on('updateGame', async ({ chatId, gameId, game }) => {
+    try {
+      if (!currentUser) return;
+
+      // Find and update the message containing this game
+      const message = await Message.findOne({ chatId, 'game.id': gameId });
+      if (!message) {
+        socket.emit('error', { message: 'Game not found' });
+        return;
+      }
+
+      // Verify player is part of the game
+      if (!game.players.some(p => p.toLowerCase() === currentUser.toLowerCase())) {
+        socket.emit('error', { message: 'You are not part of this game' });
+        return;
+      }
+
+      // Update the game state in the database
+      message.game = game;
+      await message.save();
+
+      // Notify both players about the game update
+      for (const playerName of game.players) {
+        const playerSocket = onlineUsers.get(playerName.toLowerCase());
+        if (playerSocket) {
+          io.to(playerSocket).emit('gameUpdated', { chatId, gameId, game });
+        }
+      }
+    } catch (err) {
+      console.error('updateGame error:', err);
     }
   });
 
