@@ -1077,7 +1077,9 @@ function App() {
   const gameTypes = [
     { id: 'tictactoe', name: 'Tic Tac Toe', icon: '⭕', players: 2 },
     { id: 'connect4', name: 'Connect 4', icon: '🔴', players: 2 },
-    { id: 'rps', name: 'Rock Paper Scissors', icon: '✊', players: 2 }
+    { id: 'rps', name: 'Rock Paper Scissors', icon: '✊', players: 2 },
+    { id: 'coinflip', name: 'Coin Flip', icon: '🪙', players: 2 },
+    { id: 'numberduel', name: 'Number Duel', icon: '🎯', players: 2 }
   ];
 
   // Send game invite
@@ -1178,6 +1180,10 @@ function App() {
         return { board: Array(42).fill(null) }; // 7 columns x 6 rows
       case 'rps':
         return { choices: {} };
+      case 'coinflip':
+        return { calls: {}, result: null }; // Each player calls heads or tails
+      case 'numberduel':
+        return { numbers: {} }; // Each player picks a number 1-10
       default:
         return {};
     }
@@ -1267,6 +1273,64 @@ function App() {
             updatedGame.winner = 'draw';
           } else {
             updatedGame.winner = result === 1 ? activeGame.players[0] : activeGame.players[1];
+          }
+        }
+        break;
+      }
+      case 'coinflip': {
+        if (updatedGame.state.calls[userName.toLowerCase()]) {
+          showToast("You already made your call!", 'error');
+          return;
+        }
+
+        updatedGame.state.calls[userName.toLowerCase()] = move; // 'heads' or 'tails'
+
+        // Check if both players have called
+        const player1 = activeGame.players[0].toLowerCase();
+        const player2 = activeGame.players[1].toLowerCase();
+        if (updatedGame.state.calls[player1] && updatedGame.state.calls[player2]) {
+          // Flip the coin
+          const coinResult = Math.random() < 0.5 ? 'heads' : 'tails';
+          updatedGame.state.result = coinResult;
+          updatedGame.status = 'finished';
+
+          // Player 1 always makes the "official" call, whoever matches wins
+          const player1Call = updatedGame.state.calls[player1];
+          const player2Call = updatedGame.state.calls[player2];
+
+          if (player1Call === coinResult && player2Call !== coinResult) {
+            updatedGame.winner = activeGame.players[0];
+          } else if (player2Call === coinResult && player1Call !== coinResult) {
+            updatedGame.winner = activeGame.players[1];
+          } else {
+            // Both correct or both wrong = draw
+            updatedGame.winner = 'draw';
+          }
+        }
+        break;
+      }
+      case 'numberduel': {
+        if (updatedGame.state.numbers[userName.toLowerCase()]) {
+          showToast("You already picked your number!", 'error');
+          return;
+        }
+
+        updatedGame.state.numbers[userName.toLowerCase()] = move; // number 1-10
+
+        // Check if both players have picked
+        const player1 = activeGame.players[0].toLowerCase();
+        const player2 = activeGame.players[1].toLowerCase();
+        if (updatedGame.state.numbers[player1] && updatedGame.state.numbers[player2]) {
+          updatedGame.status = 'finished';
+          const num1 = updatedGame.state.numbers[player1];
+          const num2 = updatedGame.state.numbers[player2];
+
+          if (num1 > num2) {
+            updatedGame.winner = activeGame.players[0];
+          } else if (num2 > num1) {
+            updatedGame.winner = activeGame.players[1];
+          } else {
+            updatedGame.winner = 'draw';
           }
         }
         break;
@@ -1947,9 +2011,99 @@ function App() {
               </div>
             )}
 
+            {/* Coin Flip */}
+            {activeGame.type === 'coinflip' && (
+              <div className="coinflip-game">
+                {activeGame.status === 'active' ? (
+                  activeGame.state.calls[userName.toLowerCase()] ? (
+                    <div className="coinflip-waiting">
+                      <p>You called: <strong>{activeGame.state.calls[userName.toLowerCase()]}</strong></p>
+                      <p>Waiting for opponent...</p>
+                    </div>
+                  ) : (
+                    <div className="coinflip-choices">
+                      <p>Call it!</p>
+                      <div className="coinflip-buttons">
+                        <button className="coinflip-btn" onClick={() => makeGameMove('heads')}>
+                          <span>🪙</span>
+                          <span>Heads</span>
+                        </button>
+                        <button className="coinflip-btn" onClick={() => makeGameMove('tails')}>
+                          <span>🪙</span>
+                          <span>Tails</span>
+                        </button>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  <div className="coinflip-result">
+                    <div className="coinflip-coin">
+                      <span>🪙</span>
+                      <p>The coin landed on: <strong>{activeGame.state.result}</strong></p>
+                    </div>
+                    <div className="coinflip-final">
+                      <div className="coinflip-player-call">
+                        <span>{activeGame.players[0]}</span>
+                        <span className="coinflip-call">{activeGame.state.calls[activeGame.players[0].toLowerCase()]}</span>
+                      </div>
+                      <div className="coinflip-vs">VS</div>
+                      <div className="coinflip-player-call">
+                        <span>{activeGame.players[1]}</span>
+                        <span className="coinflip-call">{activeGame.state.calls[activeGame.players[1].toLowerCase()]}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Number Duel */}
+            {activeGame.type === 'numberduel' && (
+              <div className="numberduel-game">
+                {activeGame.status === 'active' ? (
+                  activeGame.state.numbers[userName.toLowerCase()] ? (
+                    <div className="numberduel-waiting">
+                      <p>You picked: <strong>{activeGame.state.numbers[userName.toLowerCase()]}</strong></p>
+                      <p>Waiting for opponent...</p>
+                    </div>
+                  ) : (
+                    <div className="numberduel-choices">
+                      <p>Pick a number!</p>
+                      <div className="numberduel-grid">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+                          <button
+                            key={num}
+                            className="numberduel-btn"
+                            onClick={() => makeGameMove(num)}
+                          >
+                            {num}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  <div className="numberduel-result">
+                    <div className="numberduel-final">
+                      <div className="numberduel-player-pick">
+                        <span>{activeGame.players[0]}</span>
+                        <span className="numberduel-number">{activeGame.state.numbers[activeGame.players[0].toLowerCase()]}</span>
+                      </div>
+                      <div className="numberduel-vs">VS</div>
+                      <div className="numberduel-player-pick">
+                        <span>{activeGame.players[1]}</span>
+                        <span className="numberduel-number">{activeGame.state.numbers[activeGame.players[1].toLowerCase()]}</span>
+                      </div>
+                    </div>
+                    <p className="numberduel-subtitle">Higher number wins!</p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {activeGame.status === 'active' && (
               <div className="game-turn-indicator">
-                {activeGame.type !== 'rps' && (
+                {!['rps', 'coinflip', 'numberduel'].includes(activeGame.type) && (
                   activeGame.currentTurn.toLowerCase() === userName.toLowerCase()
                     ? "Your turn!"
                     : `Waiting for ${activeGame.currentTurn}...`
