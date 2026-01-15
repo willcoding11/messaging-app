@@ -679,7 +679,15 @@ io.on('connection', (socket) => {
         sender: currentUser,
         time: message.time
       });
-      await msg.save();
+
+      try {
+        await msg.save();
+        console.log('Message saved successfully, hasGame:', !!message.game);
+      } catch (saveErr) {
+        console.error('Error saving message:', saveErr);
+        socket.emit('error', { message: 'Failed to save message' });
+        return;
+      }
 
       const fullMessage = {
         text: sanitizedText,
@@ -723,6 +731,7 @@ io.on('connection', (socket) => {
       }
     } catch (err) {
       console.error('sendMessage error:', err);
+      socket.emit('error', { message: 'Failed to send message: ' + err.message });
     }
   });
 
