@@ -1719,15 +1719,34 @@ body {
   font-weight: 600;
 }
 
-.game-result {
+/* Game Result Banner */
+.game-result-banner {
   text-align: center;
-  font-size: 1.2rem;
-  font-weight: 600;
-  color: var(--primary);
-  margin-bottom: 15px;
-  padding: 10px;
-  background: var(--bg-light);
-  border-radius: 10px;
+  font-size: 1.5rem;
+  font-weight: 700;
+  padding: 15px 20px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.game-result-banner.won {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: white;
+  box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4);
+}
+
+.game-result-banner.lost {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: white;
+  box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+}
+
+.game-result-banner.draw {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
 }
 
 .game-turn-indicator {
@@ -1815,19 +1834,21 @@ body {
 
 /* Connect 4 */
 .connect4-board {
-  max-width: 320px;
+  width: 100%;
+  max-width: 350px;
   margin: 0 auto;
 }
 
 .connect4-columns {
-  display: flex;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
   margin-bottom: 8px;
+  padding: 0 8px;
 }
 
 .connect4-drop {
-  flex: 1;
-  padding: 8px;
+  padding: 6px 0;
   background: var(--primary);
   color: white;
   border: none;
@@ -1849,25 +1870,30 @@ body {
 .connect4-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
-  background: var(--primary);
-  padding: 8px;
-  border-radius: 10px;
+  grid-template-rows: repeat(6, 1fr);
+  gap: 6px;
+  background: #2563eb;
+  padding: 10px;
+  border-radius: 12px;
 }
 
 .connect4-cell {
+  width: 100%;
   aspect-ratio: 1;
-  background: var(--bg-light);
+  background: #1e3a5f;
   border-radius: 50%;
   transition: background-color 0.3s;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
 }
 
 .connect4-cell.red {
-  background: #e74c3c;
+  background: #ef4444;
+  box-shadow: inset 0 -2px 4px rgba(0,0,0,0.2), 0 2px 4px rgba(0,0,0,0.2);
 }
 
 .connect4-cell.yellow {
-  background: #f1c40f;
+  background: #fbbf24;
+  box-shadow: inset 0 -2px 4px rgba(0,0,0,0.2), 0 2px 4px rgba(0,0,0,0.2);
 }
 
 /* Rock Paper Scissors */
@@ -1995,7 +2021,11 @@ body {
 }
 
 [data-theme="dark"] .connect4-cell {
-  background: #555;
+  background: #1a1a2e;
+}
+
+[data-theme="dark"] .connect4-grid {
+  background: #1e40af;
 }
 
 [data-theme="dark"] .rps-btn {

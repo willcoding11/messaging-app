@@ -1839,8 +1839,18 @@ function App() {
             </div>
 
             {activeGame.status === 'finished' && (
-              <div className="game-result">
-                {activeGame.winner === 'draw' ? "It's a draw!" : `${activeGame.winner} wins!`}
+              <div className={`game-result-banner ${
+                activeGame.winner === 'draw'
+                  ? 'draw'
+                  : activeGame.winner?.toLowerCase() === userName.toLowerCase()
+                    ? 'won'
+                    : 'lost'
+              }`}>
+                {activeGame.winner === 'draw'
+                  ? "It's a Draw!"
+                  : activeGame.winner?.toLowerCase() === userName.toLowerCase()
+                    ? "You Won!"
+                    : "You Lost!"}
               </div>
             )}
 
