@@ -279,6 +279,16 @@ function App() {
       return;
     }
 
+    if (nameInput.trim().length > 20) {
+      setAuthError('Username must be 20 characters or less');
+      return;
+    }
+
+    if (passwordInput.length > 50) {
+      setAuthError('Password must be 50 characters or less');
+      return;
+    }
+
     const event = authMode === 'login' ? 'login' : 'register';
     socket.emit(event, { name: nameInput.trim(), password: passwordInput }, (response) => {
       if (response.success) {

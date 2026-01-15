@@ -19,9 +19,24 @@ console.log('Attempting to connect to MongoDB:', sanitizedUri);
 let isDbConnected = false;
 
 mongoose.connect(MONGODB_URI)
-  .then(() => {
+  .then(async () => {
     console.log('Successfully connected to MongoDB');
     isDbConnected = true;
+
+    // Cleanup: Remove users with names longer than 20 characters
+    try {
+      const longNameUsers = await User.find({ $expr: { $gt: [{ $strLenCP: '$name' }, 20] } });
+      if (longNameUsers.length > 0) {
+        console.log(`Found ${longNameUsers.length} users with names exceeding 20 characters. Removing...`);
+        for (const user of longNameUsers) {
+          console.log(`  Removing user: "${user.name}" (${user.name.length} chars)`);
+        }
+        await User.deleteMany({ $expr: { $gt: [{ $strLenCP: '$name' }, 20] } });
+        console.log('Long username cleanup complete.');
+      }
+    } catch (cleanupErr) {
+      console.error('Error during long username cleanup:', cleanupErr.message);
+    }
   })
   .catch(err => {
     console.error('MongoDB connection error:', err.message);
@@ -183,8 +198,18 @@ io.on('connection', (socket) => {
         return;
       }
 
+      if (trimmedName.length > 20) {
+        callback({ success: false, error: 'Username must be 20 characters or less' });
+        return;
+      }
+
       if (password.length < 4) {
         callback({ success: false, error: 'Password must be at least 4 characters' });
+        return;
+      }
+
+      if (password.length > 50) {
+        callback({ success: false, error: 'Password must be 50 characters or less' });
         return;
       }
 
@@ -242,6 +267,16 @@ io.on('connection', (socket) => {
 
       if (!trimmedName || !password) {
         callback({ success: false, error: 'Name and password required' });
+        return;
+      }
+
+      if (trimmedName.length > 20) {
+        callback({ success: false, error: 'Username must be 20 characters or less' });
+        return;
+      }
+
+      if (password.length > 50) {
+        callback({ success: false, error: 'Password must be 50 characters or less' });
         return;
       }
 
