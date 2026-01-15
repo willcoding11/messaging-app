@@ -84,7 +84,11 @@ function App() {
   const [showGamePicker, setShowGamePicker] = useState(false);
   const [activeGame, setActiveGame] = useState(null); // { gameId, gameType, players, state, chatId }
 
+  // Unread messages state - tracks chatId -> unread count
+  const [unreadMessages, setUnreadMessages] = useState({});
+
   const messagesEndRef = useRef(null);
+  const currentChatRef = useRef(null);
   const soundEnabledRef = useRef(true);
   const fileInputRef = useRef(null);
   const avatarInputRef = useRef(null);
@@ -136,6 +140,55 @@ function App() {
     }
   }, []);
 
+  // Keep currentChatRef in sync
+  useEffect(() => {
+    currentChatRef.current = currentChat;
+    // Clear unread when opening a chat
+    if (currentChat?.id) {
+      setUnreadMessages(prev => {
+        const updated = { ...prev };
+        delete updated[currentChat.id];
+        return updated;
+      });
+    }
+  }, [currentChat]);
+
+  // Format message time smartly based on when it was sent
+  const formatMessageTime = useCallback((timestamp) => {
+    if (!timestamp) return '';
+
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+
+    // Same day - just show time
+    if (date.toDateString() === now.toDateString()) {
+      return timeStr;
+    }
+
+    // Yesterday
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) {
+      return `Yesterday ${timeStr}`;
+    }
+
+    // Within the last week - show day name
+    if (diffDays < 7) {
+      const dayName = date.toLocaleDateString([], { weekday: 'long' });
+      return `${dayName} ${timeStr}`;
+    }
+
+    // Older - show full date
+    const monthDay = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    const year = date.getFullYear();
+    const dayName = date.toLocaleDateString([], { weekday: 'long' });
+    return `${monthDay} ${year}, ${dayName}, ${timeStr}`;
+  }, []);
+
   // Socket event listeners
   useEffect(() => {
     socket.on('userOnline', ({ name }) => {
@@ -159,6 +212,13 @@ function App() {
       // Play notification sound for received messages
       if (!message.sent && soundEnabledRef.current) {
         playNotificationSound();
+      }
+      // Track unread messages if not currently viewing this chat
+      if (!message.sent && currentChatRef.current?.id !== chatId) {
+        setUnreadMessages(prev => ({
+          ...prev,
+          [chatId]: (prev[chatId] || 0) + 1
+        }));
       }
     });
 
@@ -1582,46 +1642,68 @@ function App() {
         )}
 
         <div className="tabs">
-          <button className={`tab ${currentTab === 'contacts' ? 'active' : ''}`} onClick={() => setCurrentTab('contacts')}>Contacts</button>
-          <button className={`tab ${currentTab === 'groups' ? 'active' : ''}`} onClick={() => setCurrentTab('groups')}>Groups</button>
+          <button className={`tab ${currentTab === 'contacts' ? 'active' : ''}`} onClick={() => setCurrentTab('contacts')}>
+            Contacts
+            {(() => {
+              const unreadContacts = contacts.filter(c => unreadMessages[getChatId(c.name)] > 0).length;
+              return unreadContacts > 0 ? <span className="tab-badge">{unreadContacts}</span> : null;
+            })()}
+          </button>
+          <button className={`tab ${currentTab === 'groups' ? 'active' : ''}`} onClick={() => setCurrentTab('groups')}>
+            Groups
+            {(() => {
+              const unreadGroups = groups.filter(g => unreadMessages[`group_${g.id}`] > 0).length;
+              return unreadGroups > 0 ? <span className="tab-badge">{unreadGroups}</span> : null;
+            })()}
+          </button>
         </div>
         <div className="contact-list">
           {currentTab === 'contacts' ? (
             contacts.length === 0 ? (
               <div className="empty-list">No contacts yet. Add someone by their username!</div>
             ) : (
-              contacts.map(contact => (
-                <div key={contact.name} className={`contact-item ${currentChat?.name === contact.name && currentChat?.type === 'contact' ? 'active' : ''}`} onClick={() => openChat('contact', contact)}>
-                  <div className="avatar">
-                    {contact.avatar ? <img src={contact.avatar} alt={contact.name} /> : contact.name.charAt(0).toUpperCase()}
-                    <span className={`status-dot ${contact.online ? 'online' : 'offline'}`}></span>
+              contacts.map(contact => {
+                const contactChatId = getChatId(contact.name);
+                const unreadCount = unreadMessages[contactChatId] || 0;
+                return (
+                  <div key={contact.name} className={`contact-item ${currentChat?.name === contact.name && currentChat?.type === 'contact' ? 'active' : ''} ${unreadCount > 0 ? 'has-unread' : ''}`} onClick={() => openChat('contact', contact)}>
+                    <div className="avatar">
+                      {contact.avatar ? <img src={contact.avatar} alt={contact.name} /> : contact.name.charAt(0).toUpperCase()}
+                      <span className={`status-dot ${contact.online ? 'online' : 'offline'}`}></span>
+                    </div>
+                    <div className="contact-info">
+                      <div className="contact-name">{contact.name}</div>
+                      <div className="last-message">{getLastMessage(contactChatId)}</div>
+                    </div>
+                    {unreadCount > 0 && <span className="unread-badge">{unreadCount}</span>}
+                    <button className="delete-btn" onClick={(e) => { e.stopPropagation(); confirmRemoveContact(contact.name); }}>X</button>
                   </div>
-                  <div className="contact-info">
-                    <div className="contact-name">{contact.name}</div>
-                    <div className="last-message">{getLastMessage(getChatId(contact.name))}</div>
-                  </div>
-                  <button className="delete-btn" onClick={(e) => { e.stopPropagation(); confirmRemoveContact(contact.name); }}>X</button>
-                </div>
-              ))
+                );
+              })
             )
           ) : (
             groups.length === 0 ? (
               <div className="empty-list">No groups yet</div>
             ) : (
-              groups.map(group => (
-                <div key={group.id} className={`contact-item ${currentChat?.groupId === group.id ? 'active' : ''}`} onClick={() => openChat('group', group)}>
-                  <div className="avatar group-avatar">
-                    {group.avatar ? <img src={group.avatar} alt={group.name} /> : group.name.charAt(0).toUpperCase()}
+              groups.map(group => {
+                const groupChatId = `group_${group.id}`;
+                const unreadCount = unreadMessages[groupChatId] || 0;
+                return (
+                  <div key={group.id} className={`contact-item ${currentChat?.groupId === group.id ? 'active' : ''} ${unreadCount > 0 ? 'has-unread' : ''}`} onClick={() => openChat('group', group)}>
+                    <div className="avatar group-avatar">
+                      {group.avatar ? <img src={group.avatar} alt={group.name} /> : group.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="contact-info">
+                      <div className="contact-name">{group.name}</div>
+                      <div className="last-message">{getLastMessage(groupChatId)}</div>
+                    </div>
+                    {unreadCount > 0 && <span className="unread-badge">{unreadCount}</span>}
+                    {group.creator.toLowerCase() === userName.toLowerCase() && (
+                      <button className="delete-btn" onClick={(e) => { e.stopPropagation(); deleteGroup(group.id); }}>X</button>
+                    )}
                   </div>
-                  <div className="contact-info">
-                    <div className="contact-name">{group.name}</div>
-                    <div className="last-message">{getLastMessage(`group_${group.id}`)}</div>
-                  </div>
-                  {group.creator.toLowerCase() === userName.toLowerCase() && (
-                    <button className="delete-btn" onClick={(e) => { e.stopPropagation(); deleteGroup(group.id); }}>X</button>
-                  )}
-                </div>
-              ))
+                );
+              })
             )
           )}
         </div>
@@ -1701,7 +1783,7 @@ function App() {
                     </div>
                   )}
                   {msg.text && <div className="message-text">{renderMessageText(msg.text)}</div>}
-                  <div className="message-time">{msg.time}</div>
+                  <div className="message-time">{msg.timestamp ? formatMessageTime(msg.timestamp) : msg.time}</div>
                 </div>
               ))}
               <div ref={messagesEndRef} />
