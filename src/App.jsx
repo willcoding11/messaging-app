@@ -226,6 +226,8 @@ function App() {
     });
 
     socket.on('gameUpdated', ({ chatId, gameId, game }) => {
+      console.log('gameUpdated received:', { chatId, gameId, currentTurn: game.currentTurn, status: game.status });
+
       // Update the game in messages
       setMessages(prev => {
         const chatMessages = prev[chatId] || [];
@@ -239,9 +241,11 @@ function App() {
           })
         };
       });
+
       // Update active game if it's the same one
       setActiveGame(prev => {
         if (prev && prev.id === gameId) {
+          console.log('gameUpdated: Updating active game');
           return { ...game, chatId };
         }
         return prev;
@@ -1188,7 +1192,8 @@ function App() {
   const makeGameMove = (move) => {
     if (!activeGame) return;
 
-    const updatedGame = { ...activeGame };
+    // Deep clone the game state to avoid mutation issues
+    const updatedGame = JSON.parse(JSON.stringify(activeGame));
     const isPlayer1 = activeGame.players[0].toLowerCase() === userName.toLowerCase();
     const playerSymbol = isPlayer1 ? 'X' : 'O';
 
@@ -1267,6 +1272,8 @@ function App() {
         break;
       }
     }
+
+    console.log('makeGameMove: Sending update', { gameId: activeGame.id, currentTurn: updatedGame.currentTurn });
 
     // Send the updated game state
     socket.emit('updateGame', {

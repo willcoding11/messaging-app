@@ -728,34 +728,47 @@ io.on('connection', (socket) => {
   // Update game state
   socket.on('updateGame', async ({ chatId, gameId, game }) => {
     try {
-      if (!currentUser) return;
+      if (!currentUser) {
+        console.log('updateGame: No current user');
+        return;
+      }
 
-      // Find and update the message containing this game
-      const message = await Message.findOne({ chatId, 'game.id': gameId });
+      console.log('updateGame received:', { chatId, gameId, currentTurn: game.currentTurn });
+
+      // Find the message containing this game - use a more flexible query for Mixed schema
+      const messages = await Message.find({ chatId });
+      const message = messages.find(m => m.game && m.game.id === gameId);
+
       if (!message) {
+        console.log('updateGame: Game not found in', messages.length, 'messages');
         socket.emit('error', { message: 'Game not found' });
         return;
       }
 
       // Verify player is part of the game
       if (!game.players.some(p => p.toLowerCase() === currentUser.toLowerCase())) {
+        console.log('updateGame: User not in game');
         socket.emit('error', { message: 'You are not part of this game' });
         return;
       }
 
       // Update the game state in the database
       message.game = game;
+      message.markModified('game'); // Required for Mixed schema types
       await message.save();
+      console.log('updateGame: Game saved successfully');
 
       // Notify both players about the game update
       for (const playerName of game.players) {
         const playerSocket = onlineUsers.get(playerName.toLowerCase());
         if (playerSocket) {
+          console.log('updateGame: Notifying player', playerName);
           io.to(playerSocket).emit('gameUpdated', { chatId, gameId, game });
         }
       }
     } catch (err) {
       console.error('updateGame error:', err);
+      socket.emit('error', { message: 'Failed to update game' });
     }
   });
 
