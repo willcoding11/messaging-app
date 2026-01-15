@@ -2085,97 +2085,167 @@ body {
   color: var(--text-secondary);
 }
 
-/* Number Duel Game */
-.numberduel-game {
+/* Number Guess Game */
+.numberguess-game {
   padding: 20px 0;
-}
-
-.numberduel-choices {
   text-align: center;
 }
 
-.numberduel-choices p {
-  font-size: 1.1rem;
+.numberguess-game p {
   margin-bottom: 15px;
   color: var(--text-secondary);
 }
 
-.numberduel-grid {
+.numberguess-picker p,
+.numberguess-guesser > p:first-child {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.numberguess-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
-  max-width: 300px;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 6px;
+  max-width: 380px;
   margin: 0 auto;
 }
 
-.numberduel-btn {
-  width: 50px;
-  height: 50px;
+.numberguess-btn {
+  width: 32px;
+  height: 32px;
   border: 2px solid transparent;
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--bg-light);
-  font-size: 1.3rem;
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
 }
 
-.numberduel-btn:hover {
+.numberguess-btn:hover:not(:disabled) {
   border-color: var(--primary);
   background: var(--primary);
   color: white;
   transform: scale(1.1);
 }
 
-.numberduel-waiting {
-  text-align: center;
-  padding: 20px;
+.numberguess-btn.guessed {
+  opacity: 0.4;
+  cursor: not-allowed;
+  text-decoration: line-through;
 }
 
-.numberduel-waiting p {
-  margin-bottom: 10px;
+.numberguess-btn:disabled {
+  cursor: not-allowed;
+}
+
+.numberguess-waiting,
+.numberguess-waiting-picker {
+  padding: 30px;
   color: var(--text-secondary);
 }
 
-.numberduel-result {
-  text-align: center;
+.numberguess-watching {
+  padding: 10px;
 }
 
-.numberduel-final {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 30px;
-  margin-bottom: 15px;
-}
-
-.numberduel-player-pick {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.numberduel-player-pick span:first-child {
-  font-weight: 500;
-  font-size: 0.9rem;
-}
-
-.numberduel-number {
-  font-size: 3rem;
-  font-weight: 700;
+.numberguess-watching p strong {
+  font-size: 1.5rem;
   color: var(--primary);
 }
 
-.numberduel-vs {
-  font-weight: bold;
+.numberguess-watching-label {
+  margin-top: 20px;
+  font-weight: 500;
+}
+
+.numberguess-guess-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.numberguess-guess {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.numberguess-guess.low {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.numberguess-guess.high {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.numberguess-guess.correct {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.numberguess-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 15px;
+  padding: 10px;
+  background: var(--bg-light);
+  border-radius: 10px;
+}
+
+.numberguess-hint-text {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.numberguess-hint-text.higher {
+  color: #2563eb;
+}
+
+.numberguess-hint-text.lower {
+  color: #dc2626;
+}
+
+.numberguess-attempts {
+  margin-top: 15px;
+  font-size: 0.9rem;
   color: var(--text-secondary);
+}
+
+.numberguess-result {
+  padding: 20px;
+}
+
+.numberguess-secret {
   font-size: 1.2rem;
 }
 
-.numberduel-subtitle {
-  color: var(--text-secondary);
-  font-size: 0.9rem;
+.numberguess-secret strong {
+  font-size: 2rem;
+  color: var(--primary);
+}
+
+.numberguess-attempts-final {
+  margin: 15px 0;
+  font-size: 1rem;
+}
+
+.numberguess-all-guesses {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 15px;
 }
 
 /* Confirmation Modal */
@@ -2238,8 +2308,27 @@ body {
   background: #404040;
 }
 
-[data-theme="dark"] .numberduel-btn {
+[data-theme="dark"] .numberguess-btn {
   background: #404040;
+}
+
+[data-theme="dark"] .numberguess-hint {
+  background: #404040;
+}
+
+[data-theme="dark"] .numberguess-guess.low {
+  background: #5c2020;
+  color: #fca5a5;
+}
+
+[data-theme="dark"] .numberguess-guess.high {
+  background: #1e3a5f;
+  color: #93c5fd;
+}
+
+[data-theme="dark"] .numberguess-guess.correct {
+  background: #14532d;
+  color: #86efac;
 }
 
 [data-theme="dark"] .game-players span {

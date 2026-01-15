@@ -1089,7 +1089,7 @@ function App() {
     { id: 'connect4', name: 'Connect 4', icon: '🔴', players: 2 },
     { id: 'rps', name: 'Rock Paper Scissors', icon: '✊', players: 2 },
     { id: 'coinflip', name: 'Coin Flip', icon: '🪙', players: 2 },
-    { id: 'numberduel', name: 'Number Duel', icon: '🎯', players: 2 }
+    { id: 'numberguess', name: 'Number Guess', icon: '🎯', players: 2 }
   ];
 
   // Send game invite
@@ -1192,8 +1192,9 @@ function App() {
         return { choices: {} };
       case 'coinflip':
         return { calls: {}, result: null }; // Each player calls heads or tails
-      case 'numberduel':
-        return { numbers: {} }; // Each player picks a number 1-10
+      case 'numberguess':
+        // Randomly select who picks the number (0 or 1 index into players array)
+        return { picker: Math.random() < 0.5 ? 0 : 1, secretNumber: null, guesses: [], hint: null };
       default:
         return {};
     }
@@ -1319,28 +1320,36 @@ function App() {
         }
         break;
       }
-      case 'numberduel': {
-        if (updatedGame.state.numbers[userName.toLowerCase()]) {
-          showToast("You already picked your number!", 'error');
-          return;
-        }
+      case 'numberguess': {
+        const pickerIndex = activeGame.state.picker;
+        const guesserIndex = pickerIndex === 0 ? 1 : 0;
+        const isPicker = activeGame.players[pickerIndex].toLowerCase() === userName.toLowerCase();
 
-        updatedGame.state.numbers[userName.toLowerCase()] = move; // number 1-10
+        if (isPicker) {
+          // Picker is setting the secret number
+          if (updatedGame.state.secretNumber !== null) {
+            showToast("You already picked your number!", 'error');
+            return;
+          }
+          updatedGame.state.secretNumber = move;
+        } else {
+          // Guesser is making a guess
+          if (updatedGame.state.secretNumber === null) {
+            showToast("Waiting for the other player to pick a number!", 'error');
+            return;
+          }
 
-        // Check if both players have picked
-        const player1 = activeGame.players[0].toLowerCase();
-        const player2 = activeGame.players[1].toLowerCase();
-        if (updatedGame.state.numbers[player1] && updatedGame.state.numbers[player2]) {
-          updatedGame.status = 'finished';
-          const num1 = updatedGame.state.numbers[player1];
-          const num2 = updatedGame.state.numbers[player2];
+          updatedGame.state.guesses.push(move);
 
-          if (num1 > num2) {
-            updatedGame.winner = activeGame.players[0];
-          } else if (num2 > num1) {
-            updatedGame.winner = activeGame.players[1];
+          if (move === updatedGame.state.secretNumber) {
+            // Correct guess - guesser wins!
+            updatedGame.status = 'finished';
+            updatedGame.winner = activeGame.players[guesserIndex];
+            updatedGame.state.hint = 'correct';
+          } else if (move < updatedGame.state.secretNumber) {
+            updatedGame.state.hint = 'higher';
           } else {
-            updatedGame.winner = 'draw';
+            updatedGame.state.hint = 'lower';
           }
         }
         break;
@@ -2067,53 +2076,115 @@ function App() {
               </div>
             )}
 
-            {/* Number Duel */}
-            {activeGame.type === 'numberduel' && (
-              <div className="numberduel-game">
-                {activeGame.status === 'active' ? (
-                  activeGame.state.numbers[userName.toLowerCase()] ? (
-                    <div className="numberduel-waiting">
-                      <p>You picked: <strong>{activeGame.state.numbers[userName.toLowerCase()]}</strong></p>
-                      <p>Waiting for opponent...</p>
-                    </div>
-                  ) : (
-                    <div className="numberduel-choices">
-                      <p>Pick a number!</p>
-                      <div className="numberduel-grid">
-                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
-                          <button
-                            key={num}
-                            className="numberduel-btn"
-                            onClick={() => makeGameMove(num)}
-                          >
-                            {num}
-                          </button>
-                        ))}
+            {/* Number Guess */}
+            {activeGame.type === 'numberguess' && (
+              <div className="numberguess-game">
+                {(() => {
+                  const pickerIndex = activeGame.state.picker;
+                  const guesserIndex = pickerIndex === 0 ? 1 : 0;
+                  const isPicker = activeGame.players[pickerIndex].toLowerCase() === userName.toLowerCase();
+                  const pickerName = activeGame.players[pickerIndex];
+                  const guesserName = activeGame.players[guesserIndex];
+
+                  if (activeGame.status === 'active') {
+                    if (isPicker) {
+                      // Picker's view
+                      if (activeGame.state.secretNumber === null) {
+                        return (
+                          <div className="numberguess-picker">
+                            <p>You're the picker! Choose a number (1-50):</p>
+                            <div className="numberguess-grid">
+                              {Array.from({ length: 50 }, (_, i) => i + 1).map(num => (
+                                <button
+                                  key={num}
+                                  className="numberguess-btn"
+                                  onClick={() => makeGameMove(num)}
+                                >
+                                  {num}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div className="numberguess-watching">
+                            <p>Your number: <strong>{activeGame.state.secretNumber}</strong></p>
+                            <p className="numberguess-watching-label">{guesserName}'s guesses:</p>
+                            {activeGame.state.guesses.length === 0 ? (
+                              <p className="numberguess-waiting">Waiting for {guesserName} to guess...</p>
+                            ) : (
+                              <div className="numberguess-guess-list">
+                                {activeGame.state.guesses.map((guess, idx) => (
+                                  <span key={idx} className={`numberguess-guess ${guess < activeGame.state.secretNumber ? 'low' : 'high'}`}>
+                                    {guess} {guess < activeGame.state.secretNumber ? '↑' : '↓'}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                    } else {
+                      // Guesser's view
+                      if (activeGame.state.secretNumber === null) {
+                        return (
+                          <div className="numberguess-waiting-picker">
+                            <p>Waiting for {pickerName} to pick a number...</p>
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div className="numberguess-guesser">
+                            <p>Guess the number (1-50)!</p>
+                            {activeGame.state.guesses.length > 0 && (
+                              <div className="numberguess-hint">
+                                <span>Last guess: <strong>{activeGame.state.guesses[activeGame.state.guesses.length - 1]}</strong></span>
+                                <span className={`numberguess-hint-text ${activeGame.state.hint}`}>
+                                  Go {activeGame.state.hint}!
+                                </span>
+                              </div>
+                            )}
+                            <div className="numberguess-grid">
+                              {Array.from({ length: 50 }, (_, i) => i + 1).map(num => (
+                                <button
+                                  key={num}
+                                  className={`numberguess-btn ${activeGame.state.guesses.includes(num) ? 'guessed' : ''}`}
+                                  onClick={() => makeGameMove(num)}
+                                  disabled={activeGame.state.guesses.includes(num)}
+                                >
+                                  {num}
+                                </button>
+                              ))}
+                            </div>
+                            <p className="numberguess-attempts">Attempts: {activeGame.state.guesses.length}</p>
+                          </div>
+                        );
+                      }
+                    }
+                  } else {
+                    // Game finished
+                    return (
+                      <div className="numberguess-result">
+                        <p className="numberguess-secret">The number was: <strong>{activeGame.state.secretNumber}</strong></p>
+                        <p className="numberguess-attempts-final">{guesserName} guessed it in {activeGame.state.guesses.length} {activeGame.state.guesses.length === 1 ? 'try' : 'tries'}!</p>
+                        <div className="numberguess-all-guesses">
+                          {activeGame.state.guesses.map((guess, idx) => (
+                            <span key={idx} className={`numberguess-guess ${guess === activeGame.state.secretNumber ? 'correct' : guess < activeGame.state.secretNumber ? 'low' : 'high'}`}>
+                              {guess}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )
-                ) : (
-                  <div className="numberduel-result">
-                    <div className="numberduel-final">
-                      <div className="numberduel-player-pick">
-                        <span>{activeGame.players[0]}</span>
-                        <span className="numberduel-number">{activeGame.state.numbers[activeGame.players[0].toLowerCase()]}</span>
-                      </div>
-                      <div className="numberduel-vs">VS</div>
-                      <div className="numberduel-player-pick">
-                        <span>{activeGame.players[1]}</span>
-                        <span className="numberduel-number">{activeGame.state.numbers[activeGame.players[1].toLowerCase()]}</span>
-                      </div>
-                    </div>
-                    <p className="numberduel-subtitle">Higher number wins!</p>
-                  </div>
-                )}
+                    );
+                  }
+                })()}
               </div>
             )}
 
             {activeGame.status === 'active' && (
               <div className="game-turn-indicator">
-                {!['rps', 'coinflip', 'numberduel'].includes(activeGame.type) && (
+                {!['rps', 'coinflip', 'numberguess'].includes(activeGame.type) && (
                   activeGame.currentTurn.toLowerCase() === userName.toLowerCase()
                     ? "Your turn!"
                     : `Waiting for ${activeGame.currentTurn}...`
