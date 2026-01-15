@@ -73,17 +73,7 @@ const messageSchema = new mongoose.Schema({
   chatId: { type: String, required: true, index: true },
   text: String,
   image: String,
-  game: {
-    id: String,
-    type: String,
-    name: String,
-    icon: String,
-    players: [String],
-    currentTurn: String,
-    state: mongoose.Schema.Types.Mixed,
-    status: String,
-    winner: String
-  },
+  game: mongoose.Schema.Types.Mixed,
   sender: String,
   time: String,
   timestamp: { type: Number, default: Date.now }
