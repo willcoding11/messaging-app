@@ -1943,17 +1943,16 @@ body {
 
 /* Connect 4 */
 .connect4-board {
-  width: 100%;
-  max-width: 350px;
+  width: fit-content;
   margin: 0 auto;
 }
 
 .connect4-columns {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, 40px);
   gap: 6px;
   margin-bottom: 8px;
-  padding: 0 8px;
+  padding: 0 10px;
 }
 
 .connect4-drop {
@@ -1978,17 +1977,18 @@ body {
 
 .connect4-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  grid-template-rows: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 40px);
+  grid-template-rows: repeat(6, 40px);
   gap: 6px;
   background: #2563eb;
   padding: 10px;
   border-radius: 12px;
+  justify-content: center;
 }
 
 .connect4-cell {
-  width: 100%;
-  aspect-ratio: 1;
+  width: 40px;
+  height: 40px;
   background: #1e3a5f;
   border-radius: 50%;
   transition: background-color 0.3s;
@@ -2355,6 +2355,188 @@ body {
   justify-content: center;
   gap: 8px;
   margin-top: 15px;
+}
+
+/* Chopsticks Game */
+.chopsticks-game {
+  padding: 20px 10px;
+  text-align: center;
+}
+
+.chopsticks-player {
+  padding: 15px;
+  border-radius: 12px;
+  background: var(--bg-light);
+}
+
+.chopsticks-player.opponent {
+  margin-bottom: 10px;
+}
+
+.chopsticks-player.me {
+  margin-top: 10px;
+  background: linear-gradient(135deg, var(--bg-light) 0%, rgba(var(--primary-rgb, 37, 211, 102), 0.1) 100%);
+}
+
+.chopsticks-player-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+}
+
+.chopsticks-hands {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}
+
+.chopsticks-hand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 15px 25px;
+  background: white;
+  border: 3px solid #ddd;
+  border-radius: 15px;
+  cursor: default;
+  transition: all 0.2s;
+}
+
+.chopsticks-hand.selectable {
+  cursor: pointer;
+  border-color: var(--primary);
+}
+
+.chopsticks-hand.selectable:hover {
+  background: rgba(var(--primary-rgb, 37, 211, 102), 0.1);
+  transform: scale(1.05);
+}
+
+.chopsticks-hand.selected {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.chopsticks-hand.selected .hand-emoji,
+.chopsticks-hand.selected .finger-count {
+  filter: brightness(0) invert(1);
+}
+
+.chopsticks-hand.targetable {
+  cursor: pointer;
+  border-color: #ff6b6b;
+  animation: pulse-target 1s infinite;
+}
+
+.chopsticks-hand.targetable:hover {
+  background: #fff0f0;
+  transform: scale(1.05);
+}
+
+.chopsticks-hand.out {
+  opacity: 0.4;
+  border-color: #ccc;
+  cursor: not-allowed;
+}
+
+@keyframes pulse-target {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(255, 107, 107, 0);
+  }
+}
+
+.hand-emoji {
+  font-size: 2.5rem;
+}
+
+.finger-count {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.chopsticks-vs {
+  font-weight: bold;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  padding: 5px 0;
+}
+
+.chopsticks-actions {
+  margin-top: 15px;
+  padding: 10px;
+  background: var(--bg-light);
+  border-radius: 10px;
+}
+
+.chopsticks-instruction {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.chopsticks-split {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.chopsticks-split > span {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.chopsticks-split-btn {
+  padding: 8px 16px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.chopsticks-split-btn:hover {
+  transform: scale(1.05);
+  filter: brightness(1.1);
+}
+
+/* Dark theme for Chopsticks */
+[data-theme="dark"] .chopsticks-player {
+  background: #363636;
+}
+
+[data-theme="dark"] .chopsticks-player.me {
+  background: linear-gradient(135deg, #363636 0%, rgba(var(--primary-rgb, 37, 211, 102), 0.2) 100%);
+}
+
+[data-theme="dark"] .chopsticks-hand {
+  background: #2d2d2d;
+  border-color: #555;
+}
+
+[data-theme="dark"] .chopsticks-hand.selectable {
+  border-color: var(--primary);
+}
+
+[data-theme="dark"] .chopsticks-hand.targetable {
+  border-color: #ff6b6b;
+}
+
+[data-theme="dark"] .chopsticks-hand.targetable:hover {
+  background: #4a2020;
+}
+
+[data-theme="dark"] .chopsticks-actions {
+  background: #363636;
 }
 
 /* Confirmation Modal */

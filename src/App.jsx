@@ -1149,7 +1149,8 @@ function App() {
     { id: 'connect4', name: 'Connect 4', icon: '🔴', players: 2 },
     { id: 'rps', name: 'Rock Paper Scissors', icon: '✊', players: 2 },
     { id: 'coinflip', name: 'Coin Flip', icon: '🪙', players: 2 },
-    { id: 'numberguess', name: 'Number Guess', icon: '🎯', players: 2 }
+    { id: 'numberguess', name: 'Number Guess', icon: '🎯', players: 2 },
+    { id: 'chopsticks', name: 'Chopsticks', icon: '🖐️', players: 2 }
   ];
 
   // Send game invite
@@ -1255,6 +1256,15 @@ function App() {
       case 'numberguess':
         // Randomly select who picks the number (0 or 1 index into players array)
         return { picker: Math.random() < 0.5 ? 0 : 1, secretNumber: null, guesses: [], hint: null };
+      case 'chopsticks':
+        // Each player has left and right hands, starting with 1 finger each
+        return {
+          hands: {
+            0: { left: 1, right: 1 }, // Player 1's hands
+            1: { left: 1, right: 1 }  // Player 2's hands
+          },
+          selectedHand: null // For UI: which of your hands is selected for tapping
+        };
       default:
         return {};
     }
@@ -1412,6 +1422,84 @@ function App() {
             updatedGame.state.hint = 'lower';
           }
         }
+        break;
+      }
+      case 'chopsticks': {
+        // Check if it's player's turn
+        if (updatedGame.currentTurn.toLowerCase() !== userName.toLowerCase()) {
+          showToast("It's not your turn!", 'error');
+          return;
+        }
+
+        const myIndex = activeGame.players[0].toLowerCase() === userName.toLowerCase() ? 0 : 1;
+        const opponentIndex = myIndex === 0 ? 1 : 0;
+        const myHands = updatedGame.state.hands[myIndex];
+        const opponentHands = updatedGame.state.hands[opponentIndex];
+
+        if (move.type === 'tap') {
+          // Tap opponent's hand with my hand
+          const myFingers = myHands[move.myHand];
+          const theirFingers = opponentHands[move.theirHand];
+
+          if (myFingers === 0) {
+            showToast("You can't tap with a dead hand!", 'error');
+            return;
+          }
+          if (theirFingers === 0) {
+            showToast("You can't tap a dead hand!", 'error');
+            return;
+          }
+
+          // Add fingers
+          let newFingers = theirFingers + myFingers;
+          if (newFingers >= 5) {
+            newFingers = 0; // Hand is out
+          }
+          updatedGame.state.hands[opponentIndex][move.theirHand] = newFingers;
+
+        } else if (move.type === 'split') {
+          // Redistribute fingers between own hands
+          const totalFingers = myHands.left + myHands.right;
+          const newLeft = move.left;
+          const newRight = move.right;
+
+          // Validate split
+          if (newLeft + newRight !== totalFingers) {
+            showToast("Invalid split - fingers must add up!", 'error');
+            return;
+          }
+          if (newLeft < 0 || newRight < 0 || newLeft > 4 || newRight > 4) {
+            showToast("Invalid split - keep fingers between 0-4!", 'error');
+            return;
+          }
+          if (newLeft === myHands.left && newRight === myHands.right) {
+            showToast("Split must change the hand configuration!", 'error');
+            return;
+          }
+
+          updatedGame.state.hands[myIndex].left = newLeft;
+          updatedGame.state.hands[myIndex].right = newRight;
+        }
+
+        // Check for winner - opponent loses if both hands are 0
+        const oppHands = updatedGame.state.hands[opponentIndex];
+        const myNewHands = updatedGame.state.hands[myIndex];
+
+        if (oppHands.left === 0 && oppHands.right === 0) {
+          updatedGame.status = 'finished';
+          updatedGame.winner = activeGame.players[myIndex];
+        } else if (myNewHands.left === 0 && myNewHands.right === 0) {
+          updatedGame.status = 'finished';
+          updatedGame.winner = activeGame.players[opponentIndex];
+        } else {
+          // Switch turns
+          updatedGame.currentTurn = activeGame.players.find(
+            p => p.toLowerCase() !== userName.toLowerCase()
+          );
+        }
+
+        // Clear selected hand
+        updatedGame.state.selectedHand = null;
         break;
       }
     }
@@ -2260,6 +2348,145 @@ function App() {
                       </div>
                     );
                   }
+                })()}
+              </div>
+            )}
+
+            {/* Chopsticks */}
+            {activeGame.type === 'chopsticks' && (
+              <div className="chopsticks-game">
+                {(() => {
+                  const myIndex = activeGame.players[0].toLowerCase() === userName.toLowerCase() ? 0 : 1;
+                  const opponentIndex = myIndex === 0 ? 1 : 0;
+                  const myHands = activeGame.state.hands[myIndex];
+                  const opponentHands = activeGame.state.hands[opponentIndex];
+                  const isMyTurn = activeGame.currentTurn?.toLowerCase() === userName.toLowerCase();
+                  const [selectedHand, setSelectedHandLocal] = [activeGame.state.selectedHand, (hand) => {
+                    setActiveGame(prev => ({
+                      ...prev,
+                      state: { ...prev.state, selectedHand: hand }
+                    }));
+                  }];
+
+                  const renderHand = (fingers, isOut) => {
+                    if (isOut || fingers === 0) return '✊';
+                    const fingerEmojis = ['✊', '☝️', '✌️', '🤟', '🖐️'];
+                    return fingerEmojis[fingers] || '🖐️';
+                  };
+
+                  const canSplit = () => {
+                    const total = myHands.left + myHands.right;
+                    if (total === 0) return false;
+                    // Check if there's a valid different split
+                    for (let l = 0; l <= Math.min(4, total); l++) {
+                      const r = total - l;
+                      if (r >= 0 && r <= 4 && (l !== myHands.left || r !== myHands.right)) {
+                        return true;
+                      }
+                    }
+                    return false;
+                  };
+
+                  const getValidSplits = () => {
+                    const total = myHands.left + myHands.right;
+                    const splits = [];
+                    for (let l = 0; l <= Math.min(4, total); l++) {
+                      const r = total - l;
+                      if (r >= 0 && r <= 4 && (l !== myHands.left || r !== myHands.right)) {
+                        splits.push({ left: l, right: r });
+                      }
+                    }
+                    return splits;
+                  };
+
+                  return (
+                    <>
+                      {/* Opponent's hands */}
+                      <div className="chopsticks-player opponent">
+                        <div className="chopsticks-player-name">{activeGame.players[opponentIndex]}</div>
+                        <div className="chopsticks-hands">
+                          <div
+                            className={`chopsticks-hand ${opponentHands.left === 0 ? 'out' : ''} ${selectedHand && isMyTurn ? 'targetable' : ''}`}
+                            onClick={() => {
+                              if (selectedHand && isMyTurn && opponentHands.left > 0 && activeGame.status === 'active') {
+                                makeGameMove({ type: 'tap', myHand: selectedHand, theirHand: 'left' });
+                              }
+                            }}
+                          >
+                            <span className="hand-emoji">{renderHand(opponentHands.left)}</span>
+                            <span className="finger-count">{opponentHands.left}</span>
+                          </div>
+                          <div
+                            className={`chopsticks-hand ${opponentHands.right === 0 ? 'out' : ''} ${selectedHand && isMyTurn ? 'targetable' : ''}`}
+                            onClick={() => {
+                              if (selectedHand && isMyTurn && opponentHands.right > 0 && activeGame.status === 'active') {
+                                makeGameMove({ type: 'tap', myHand: selectedHand, theirHand: 'right' });
+                              }
+                            }}
+                          >
+                            <span className="hand-emoji">{renderHand(opponentHands.right)}</span>
+                            <span className="finger-count">{opponentHands.right}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="chopsticks-vs">VS</div>
+
+                      {/* My hands */}
+                      <div className="chopsticks-player me">
+                        <div className="chopsticks-player-name">{activeGame.players[myIndex]} (You)</div>
+                        <div className="chopsticks-hands">
+                          <div
+                            className={`chopsticks-hand ${myHands.left === 0 ? 'out' : ''} ${selectedHand === 'left' ? 'selected' : ''} ${isMyTurn && myHands.left > 0 ? 'selectable' : ''}`}
+                            onClick={() => {
+                              if (isMyTurn && myHands.left > 0 && activeGame.status === 'active') {
+                                setSelectedHandLocal(selectedHand === 'left' ? null : 'left');
+                              }
+                            }}
+                          >
+                            <span className="hand-emoji">{renderHand(myHands.left)}</span>
+                            <span className="finger-count">{myHands.left}</span>
+                          </div>
+                          <div
+                            className={`chopsticks-hand ${myHands.right === 0 ? 'out' : ''} ${selectedHand === 'right' ? 'selected' : ''} ${isMyTurn && myHands.right > 0 ? 'selectable' : ''}`}
+                            onClick={() => {
+                              if (isMyTurn && myHands.right > 0 && activeGame.status === 'active') {
+                                setSelectedHandLocal(selectedHand === 'right' ? null : 'right');
+                              }
+                            }}
+                          >
+                            <span className="hand-emoji">{renderHand(myHands.right)}</span>
+                            <span className="finger-count">{myHands.right}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Instructions and Split option */}
+                      {activeGame.status === 'active' && isMyTurn && (
+                        <div className="chopsticks-actions">
+                          {selectedHand ? (
+                            <p className="chopsticks-instruction">Tap an opponent's hand, or click your hand again to deselect</p>
+                          ) : (
+                            <p className="chopsticks-instruction">Select one of your hands to tap, or split your fingers</p>
+                          )}
+                          {canSplit() && !selectedHand && (
+                            <div className="chopsticks-split">
+                              <span>Split:</span>
+                              {getValidSplits().map((split, idx) => (
+                                <button
+                                  key={idx}
+                                  className="chopsticks-split-btn"
+                                  onClick={() => makeGameMove({ type: 'split', left: split.left, right: split.right })}
+                                >
+                                  {split.left}-{split.right}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  );
                 })()}
               </div>
             )}
