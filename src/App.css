@@ -2587,6 +2587,14 @@ body {
   background: #1a1a2e;
 }
 
+[data-theme="dark"] .connect4-cell.red {
+  background: #ef4444 !important;
+}
+
+[data-theme="dark"] .connect4-cell.yellow {
+  background: #fbbf24 !important;
+}
+
 [data-theme="dark"] .connect4-grid {
   background: #1e40af;
 }
