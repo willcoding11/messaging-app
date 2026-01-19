@@ -329,8 +329,16 @@ function App() {
     };
   }, [showToast]);
 
+  const prevChatRef = useRef(null);
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Use instant scroll when switching chats, smooth scroll for new messages
+    const isNewChat = prevChatRef.current?.id !== currentChat?.id;
+    prevChatRef.current = currentChat;
+
+    // Small delay to ensure DOM is updated with messages
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: isNewChat ? 'instant' : 'smooth' });
+    }, isNewChat ? 50 : 0);
   }, [messages, currentChat]);
 
   const handleAuth = () => {
