@@ -1930,40 +1930,100 @@ function App() {
                 >
                   😊
                 </button>
-                <button
-                  className="input-btn"
-                  onClick={() => { setShowGifPicker(!showGifPicker); setShowEmojiPicker(false); setShowGamePicker(false); if (!showGifPicker) loadTrendingGifs(); }}
-                  title="GIF"
-                  disabled={isUploading}
-                >
-                  GIF
-                </button>
-                <button
-                  className="input-btn"
-                  onClick={() => { setShowGamePicker(!showGamePicker); setShowEmojiPicker(false); setShowGifPicker(false); }}
-                  title="Games"
-                  disabled={isUploading || currentChat?.type === 'group'}
-                >
-                  🎮
-                </button>
-                <input
-                  type="text"
-                  className="chat-input"
-                  value={messageInput}
-                  onChange={(e) => { setMessageInput(e.target.value); handleTyping(); }}
-                  onKeyDown={(e) => e.key === 'Enter' && !isUploading && sendMessage()}
-                  onPaste={handlePaste}
-                  placeholder={isUploading ? "Uploading image..." : "Type a message..."}
-                  disabled={isUploading}
-                />
-                <button
-                  className="send-btn"
-                  onClick={() => sendMessage()}
-                  disabled={isUploading}
-                >
-                  Send
-                </button>
-              </div>
+                <div className="picker-btn-wrapper">
+                  <button
+                    className="input-btn"
+                    onClick={() => { setShowGifPicker(!showGifPicker); setShowEmojiPicker(false); setShowGamePicker(false); if (!showGifPicker) loadTrendingGifs(); }}
+                    title="GIF"
+                    disabled={isUploading}
+                  >
+                    GIF
+                  </button>
+                  {showGifPicker && (
+                    <div className="picker-popup gif-picker">
+                      <div className="picker-header">
+                        <span>GIFs</span>
+                        <button className="picker-close" onClick={() => setShowGifPicker(false)}>×</button>
+                      </div>
+                      <div className="gif-search">
+                        <input
+                          type="text"
+                          value={gifSearch}
+                          onChange={(e) => setGifSearch(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && searchGifs(gifSearch)}
+                          placeholder="Search GIFs..."
+                        />
+                        <button onClick={() => searchGifs(gifSearch)}>Search</button>
+                      </div>
+                      <div className="gif-grid">
+                        {gifLoading ? (
+                          <div className="gif-loading">Loading...</div>
+                        ) : gifResults.length === 0 ? (
+                          <div className="gif-empty">No GIFs found</div>
+                        ) : (
+                          gifResults.map((gif) => (
+                            <img
+                              key={gif.id}
+                              src={gif.media_formats?.tinygif?.url || gif.media_formats?.gif?.url}
+                              alt={gif.content_description}
+                              className="gif-item"
+                              onClick={() => sendGif(gif.media_formats?.gif?.url)}
+                            />
+                          ))
+                        )}
+                      </div>
+                      <div className="gif-attribution">Powered by Tenor</div>
+                    </div>
+                  )}
+                </div>
+                <div className="picker-btn-wrapper">
+                  <button
+                    className="input-btn"
+                    onClick={() => { setShowGamePicker(!showGamePicker); setShowEmojiPicker(false); setShowGifPicker(false); }}
+                    title="Games"
+                    disabled={isUploading || currentChat?.type === 'group'}
+                  >
+                    🎮
+                  </button>
+                  {showGamePicker && (
+                    <div className="picker-popup game-picker">
+                      <div className="picker-header">
+                        <span>Games</span>
+                        <button className="picker-close" onClick={() => setShowGamePicker(false)}>×</button>
+                      </div>
+                      <div className="game-list">
+                        {gameTypes.map(game => (
+                          <div
+                            key={game.id}
+                            className="game-option"
+                            onClick={() => sendGameInvite(game.id)}
+                          >
+                            <span className="game-option-icon">{game.icon}</span>
+                            <span className="game-option-name">{game.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              <input
+                type="text"
+                className="chat-input"
+                value={messageInput}
+                onChange={(e) => { setMessageInput(e.target.value); handleTyping(); }}
+                onKeyDown={(e) => e.key === 'Enter' && !isUploading && sendMessage()}
+                onPaste={handlePaste}
+                placeholder={isUploading ? "Uploading image..." : "Type a message..."}
+                disabled={isUploading}
+              />
+              <button
+                className="send-btn"
+                onClick={() => sendMessage()}
+                disabled={isUploading}
+              >
+                Send
+              </button>
+            </div>
 
               {/* Emoji Picker */}
               {showEmojiPicker && (
@@ -2002,65 +2062,6 @@ function App() {
                 </div>
               )}
 
-              {/* GIF Picker */}
-              {showGifPicker && (
-                <div className="picker-popup gif-picker">
-                  <div className="picker-header">
-                    <span>GIFs</span>
-                    <button className="picker-close" onClick={() => setShowGifPicker(false)}>×</button>
-                  </div>
-                  <div className="gif-search">
-                    <input
-                      type="text"
-                      value={gifSearch}
-                      onChange={(e) => setGifSearch(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && searchGifs(gifSearch)}
-                      placeholder="Search GIFs..."
-                    />
-                    <button onClick={() => searchGifs(gifSearch)}>Search</button>
-                  </div>
-                  <div className="gif-grid">
-                    {gifLoading ? (
-                      <div className="gif-loading">Loading...</div>
-                    ) : gifResults.length === 0 ? (
-                      <div className="gif-empty">No GIFs found</div>
-                    ) : (
-                      gifResults.map((gif) => (
-                        <img
-                          key={gif.id}
-                          src={gif.media_formats?.tinygif?.url || gif.media_formats?.gif?.url}
-                          alt={gif.content_description}
-                          className="gif-item"
-                          onClick={() => sendGif(gif.media_formats?.gif?.url)}
-                        />
-                      ))
-                    )}
-                  </div>
-                  <div className="gif-attribution">Powered by Tenor</div>
-                </div>
-              )}
-
-              {/* Game Picker */}
-              {showGamePicker && (
-                <div className="picker-popup game-picker">
-                  <div className="picker-header">
-                    <span>Games</span>
-                    <button className="picker-close" onClick={() => setShowGamePicker(false)}>×</button>
-                  </div>
-                  <div className="game-list">
-                    {gameTypes.map(game => (
-                      <div
-                        key={game.id}
-                        className="game-option"
-                        onClick={() => sendGameInvite(game.id)}
-                      >
-                        <span className="game-option-icon">{game.icon}</span>
-                        <span className="game-option-name">{game.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </>
         )}
@@ -2587,12 +2588,17 @@ function App() {
         </div>
       )}
 
-      {/* Settings Modal */}
+      {/* Settings Page */}
       {showSettingsModal && (
-        <div className="modal-overlay" onClick={() => setShowSettingsModal(false)}>
-          <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Settings</h3>
+        <div className="settings-page">
+          <div className="settings-page-header">
+            <button className="settings-back-btn" onClick={() => setShowSettingsModal(false)}>
+              ←
+            </button>
+            <h2>Settings</h2>
+          </div>
 
+          <div className="settings-page-content">
             <div className="settings-avatar-section">
               <input
                 type="file"
@@ -2692,11 +2698,11 @@ function App() {
             </div>
 
             {settingsError && <div className="error-message">{settingsError}</div>}
+          </div>
 
-            <div className="modal-buttons">
-              <button className="modal-btn cancel" onClick={() => setShowSettingsModal(false)}>Cancel</button>
-              <button className="modal-btn confirm" onClick={saveSettings}>Save</button>
-            </div>
+          <div className="settings-page-footer">
+            <button className="modal-btn cancel" onClick={() => setShowSettingsModal(false)}>Cancel</button>
+            <button className="modal-btn confirm" onClick={saveSettings}>Save</button>
           </div>
         </div>
       )}
