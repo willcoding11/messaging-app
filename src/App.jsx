@@ -8,6 +8,8 @@ import cameraIconDark from '../assets/camera - dark mode.png';
 import emojiIconDark from '../assets/happy - dark mode.png';
 import gifIconDark from '../assets/gif - dark mode.png';
 import gamesIconDark from '../assets/console - dark mode.png';
+import infoIcon from '../assets/info.png';
+import infoIconDark from '../assets/info - dark mode.png';
 import notificationSound from '../assets/new-notification.mp3';
 
 // In production, connect to same origin. In dev, connect to port 3001
@@ -1884,7 +1886,7 @@ function App() {
               </div>
               {currentChat.type === 'group' && (
                 <button className="group-info-btn" onClick={openGroupSettingsModal} title="Group settings">
-                  ℹ️
+                  <img src={userTheme === 'dark' ? infoIconDark : infoIcon} alt="Info" className="info-icon" />
                 </button>
               )}
             </div>
