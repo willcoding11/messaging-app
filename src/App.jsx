@@ -1890,47 +1890,49 @@ function App() {
             </div>
             <div className="chat-messages">
               {(messages[currentChat.id] || []).map((msg, idx) => (
-                <div key={idx} className={`message ${msg.sent ? 'sent' : 'received'}`}>
-                  {!msg.sent && currentChat.type === 'group' && (
-                    <div className="message-with-avatar">
-                      <div className="message-avatar">
-                        {getMemberAvatar(msg.sender) ? (
-                          <img src={getMemberAvatar(msg.sender)} alt={msg.sender} />
-                        ) : msg.sender?.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="message-sender">{msg.sender}</div>
-                    </div>
-                  )}
-                  {msg.image && (
-                    <img
-                      src={msg.image}
-                      alt="Shared"
-                      className="message-image"
-                      onClick={() => window.open(msg.image, '_blank')}
-                    />
-                  )}
-                  {msg.game && (
-                    <div className={`game-invite ${msg.game.status}`}>
-                      <div className="game-invite-icon">{msg.game.icon}</div>
-                      <div className="game-invite-info">
-                        <div className="game-invite-name">{msg.game.name}</div>
-                        <div className="game-invite-status">
-                          {msg.game.status === 'finished'
-                            ? msg.game.winner === 'draw'
-                              ? "It's a draw!"
-                              : `${msg.game.winner} wins!`
-                            : `${msg.game.currentTurn}'s turn`}
+                <div key={idx} className={`message-wrapper ${msg.sent ? 'sent' : 'received'}`}>
+                  <div className={`message ${msg.sent ? 'sent' : 'received'}`}>
+                    {!msg.sent && currentChat.type === 'group' && (
+                      <div className="message-with-avatar">
+                        <div className="message-avatar">
+                          {getMemberAvatar(msg.sender) ? (
+                            <img src={getMemberAvatar(msg.sender)} alt={msg.sender} />
+                          ) : msg.sender?.charAt(0).toUpperCase()}
                         </div>
+                        <div className="message-sender">{msg.sender}</div>
                       </div>
-                      <button
-                        className="game-invite-btn"
-                        onClick={() => openGame(msg.game, currentChat.id)}
-                      >
-                        {msg.game.status === 'active' ? `Start ${msg.game.name}` : 'View Result'}
-                      </button>
-                    </div>
-                  )}
-                  {msg.text && <div className="message-text">{renderMessageText(msg.text)}</div>}
+                    )}
+                    {msg.image && (
+                      <img
+                        src={msg.image}
+                        alt="Shared"
+                        className="message-image"
+                        onClick={() => window.open(msg.image, '_blank')}
+                      />
+                    )}
+                    {msg.game && (
+                      <div className={`game-invite ${msg.game.status}`}>
+                        <div className="game-invite-icon">{msg.game.icon}</div>
+                        <div className="game-invite-info">
+                          <div className="game-invite-name">{msg.game.name}</div>
+                          <div className="game-invite-status">
+                            {msg.game.status === 'finished'
+                              ? msg.game.winner === 'draw'
+                                ? "It's a draw!"
+                                : `${msg.game.winner} wins!`
+                              : `${msg.game.currentTurn}'s turn`}
+                          </div>
+                        </div>
+                        <button
+                          className="game-invite-btn"
+                          onClick={() => openGame(msg.game, currentChat.id)}
+                        >
+                          {msg.game.status === 'active' ? `Start ${msg.game.name}` : 'View Result'}
+                        </button>
+                      </div>
+                    )}
+                    {msg.text && <div className="message-text">{renderMessageText(msg.text)}</div>}
+                  </div>
                   <div className="message-time">{msg.timestamp ? formatMessageTime(msg.timestamp) : msg.time}</div>
                 </div>
               ))}
@@ -2759,75 +2761,92 @@ function App() {
         </div>
       )}
 
-      {/* Group Settings Modal */}
+      {/* Group Settings Page */}
       {showGroupSettingsModal && currentGroup && (
-        <div className="modal-overlay" onClick={() => setShowGroupSettingsModal(false)}>
-          <div className="modal group-settings-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Group Settings</h3>
+        <div className="settings-page">
+          <div className="settings-page-header">
+            <button className="settings-back-btn" onClick={() => setShowGroupSettingsModal(false)}>
+              ←
+            </button>
+            <h2>Group Settings</h2>
+          </div>
+
+          <div className="settings-page-content">
+            <div className="settings-avatar-section">
+              <input
+                type="file"
+                ref={groupAvatarInputRef}
+                onChange={(e) => handleAvatarSelect(e, true)}
+                accept="image/*"
+                style={{ display: 'none' }}
+              />
+              {isGroupManager ? (
+                <div className="settings-avatar group-avatar" onClick={() => groupAvatarInputRef.current?.click()}>
+                  {tempGroupAvatar ? <img src={tempGroupAvatar} alt="Group" /> : currentGroup.name.charAt(0).toUpperCase()}
+                  <div className="settings-avatar-overlay">Change</div>
+                </div>
+              ) : (
+                <div className="settings-avatar group-avatar" style={{ cursor: 'default' }}>
+                  {currentGroup.avatar ? <img src={currentGroup.avatar} alt="Group" /> : currentGroup.name.charAt(0).toUpperCase()}
+                </div>
+              )}
+              {isGroupManager && tempGroupAvatar && (
+                <div className="avatar-actions">
+                  <button
+                    className="avatar-action-btn edit"
+                    onClick={() => editExistingAvatar(true)}
+                  >
+                    Edit crop
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="settings-section">
+              <h4>Group Name</h4>
+              {isGroupManager ? (
+                <input
+                  type="text"
+                  className="modal-input"
+                  value={editGroupName}
+                  onChange={(e) => setEditGroupName(e.target.value)}
+                  placeholder="Group name"
+                />
+              ) : (
+                <div className="settings-info-text">{currentGroup.name}</div>
+              )}
+            </div>
+
+            <div className="settings-section">
+              <h4>Description</h4>
+              {isGroupManager ? (
+                <input
+                  type="text"
+                  className="modal-input"
+                  value={editGroupDescription}
+                  onChange={(e) => setEditGroupDescription(e.target.value)}
+                  placeholder="Group description (optional)"
+                />
+              ) : (
+                <div className="settings-info-text">{currentGroup.description || 'No description'}</div>
+              )}
+            </div>
 
             {isGroupManager && (
-              <>
-                <div className="settings-avatar-section">
-                  <input
-                    type="file"
-                    ref={groupAvatarInputRef}
-                    onChange={(e) => handleAvatarSelect(e, true)}
-                    accept="image/*"
-                    style={{ display: 'none' }}
-                  />
-                  <div className="settings-avatar group-avatar" onClick={() => groupAvatarInputRef.current?.click()}>
-                    {tempGroupAvatar ? <img src={tempGroupAvatar} alt="Group" /> : currentGroup.name.charAt(0).toUpperCase()}
-                    <div className="settings-avatar-overlay">Change</div>
-                  </div>
-                  {tempGroupAvatar && (
-                    <div className="avatar-actions">
-                      <button
-                        className="avatar-action-btn edit"
-                        onClick={() => editExistingAvatar(true)}
-                      >
-                        Edit crop
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="settings-section">
-                  <h4>Group Name</h4>
+              <div className="settings-section">
+                <h4>Add Member</h4>
+                <div className="add-member-section">
                   <input
                     type="text"
                     className="modal-input"
-                    value={editGroupName}
-                    onChange={(e) => setEditGroupName(e.target.value)}
-                    placeholder="Group name"
+                    value={newMemberName}
+                    onChange={(e) => setNewMemberName(e.target.value)}
+                    placeholder="Enter username..."
+                    onKeyDown={(e) => e.key === 'Enter' && addGroupMember()}
                   />
+                  <button className="add-member-btn" onClick={addGroupMember}>Add</button>
                 </div>
-
-                <div className="settings-section">
-                  <h4>Description</h4>
-                  <input
-                    type="text"
-                    className="modal-input"
-                    value={editGroupDescription}
-                    onChange={(e) => setEditGroupDescription(e.target.value)}
-                    placeholder="Group description (optional)"
-                  />
-                </div>
-
-                <div className="settings-section">
-                  <h4>Add Member</h4>
-                  <div className="add-member-section">
-                    <input
-                      type="text"
-                      className="modal-input"
-                      value={newMemberName}
-                      onChange={(e) => setNewMemberName(e.target.value)}
-                      placeholder="Enter username..."
-                      onKeyDown={(e) => e.key === 'Enter' && addGroupMember()}
-                    />
-                    <button className="add-member-btn" onClick={addGroupMember}>Add</button>
-                  </div>
-                </div>
-              </>
+              </div>
             )}
 
             <div className="settings-section">
@@ -2855,18 +2874,18 @@ function App() {
             </div>
 
             {groupSettingsError && <div className="error-message">{groupSettingsError}</div>}
+          </div>
 
-            <div className="modal-buttons">
-              {!isGroupManager && (
-                <button className="leave-group-btn" onClick={leaveGroup}>Leave Group</button>
-              )}
-              <button className="modal-btn cancel" onClick={() => setShowGroupSettingsModal(false)}>
-                {isGroupManager ? 'Cancel' : 'Close'}
-              </button>
-              {isGroupManager && (
-                <button className="modal-btn confirm" onClick={saveGroupSettings}>Save</button>
-              )}
-            </div>
+          <div className="settings-page-footer">
+            {!isGroupManager && (
+              <button className="leave-group-btn" onClick={leaveGroup}>Leave Group</button>
+            )}
+            <button className="modal-btn cancel" onClick={() => setShowGroupSettingsModal(false)}>
+              {isGroupManager ? 'Cancel' : 'Close'}
+            </button>
+            {isGroupManager && (
+              <button className="modal-btn confirm" onClick={saveGroupSettings}>Save</button>
+            )}
           </div>
         </div>
       )}
