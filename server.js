@@ -72,6 +72,7 @@ const userSchema = new mongoose.Schema({
   sentInvites: [String],
   avatar: String,
   theme: { type: String, default: 'green' },
+  sessionToken: String,
   createdAt: { type: Number, default: Date.now }
 });
 
@@ -220,6 +221,7 @@ io.on('connection', (socket) => {
       }
 
       const { hash, salt } = hashPassword(password);
+      const sessionToken = randomBytes(32).toString('hex');
       const user = new User({
         name: trimmedName,
         nameLower: lowerName,
@@ -229,7 +231,8 @@ io.on('connection', (socket) => {
         pendingInvites: [],
         sentInvites: [],
         avatar: null,
-        theme: 'green'
+        theme: 'green',
+        sessionToken
       });
       await user.save();
 
@@ -241,7 +244,8 @@ io.on('connection', (socket) => {
         success: true,
         name: trimmedName,
         avatar: null,
-        theme: 'green'
+        theme: 'green',
+        sessionToken
       });
 
       io.emit('userOnline', { name: trimmedName });
@@ -291,10 +295,54 @@ io.on('connection', (socket) => {
         return;
       }
 
+      // Generate session token
+      const sessionToken = randomBytes(32).toString('hex');
+      user.sessionToken = sessionToken;
+      await user.save();
+
       currentUser = user.name;
       onlineUsers.set(lowerName, socket.id);
 
       console.log(`User logged in: ${user.name}`);
+      callback({
+        success: true,
+        name: user.name,
+        avatar: user.avatar || null,
+        theme: user.theme || 'green',
+        sessionToken
+      });
+
+      io.emit('userOnline', { name: user.name });
+    } catch (err) {
+      console.error('Login error:', err.message);
+      console.error('Full login error:', err);
+      callback({ success: false, error: 'Login failed: ' + err.message });
+    }
+  });
+
+  // Restore session from token
+  socket.on('restoreSession', async ({ sessionToken }, callback) => {
+    try {
+      if (!sessionToken) {
+        callback({ success: false, error: 'No session token' });
+        return;
+      }
+
+      if (mongoose.connection.readyState !== 1) {
+        callback({ success: false, error: 'Database not connected' });
+        return;
+      }
+
+      const user = await User.findOne({ sessionToken });
+      if (!user) {
+        callback({ success: false, error: 'Invalid session' });
+        return;
+      }
+
+      currentUser = user.name;
+      onlineUsers.set(user.nameLower, socket.id);
+
+      console.log(`Session restored for: ${user.name}`);
       callback({
         success: true,
         name: user.name,
@@ -304,9 +352,8 @@ io.on('connection', (socket) => {
 
       io.emit('userOnline', { name: user.name });
     } catch (err) {
-      console.error('Login error:', err.message);
-      console.error('Full login error:', err);
-      callback({ success: false, error: 'Login failed: ' + err.message });
+      console.error('Restore session error:', err.message);
+      callback({ success: false, error: 'Session restore failed' });
     }
   });
 

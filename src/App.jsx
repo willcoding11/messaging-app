@@ -151,6 +151,30 @@ function App() {
     }
   }, []);
 
+  // Restore session on app load
+  useEffect(() => {
+    const sessionToken = localStorage.getItem('sessionToken');
+    if (sessionToken && !isLoggedIn) {
+      socket.emit('restoreSession', { sessionToken }, (response) => {
+        if (response.success) {
+          setUserName(response.name);
+          setUserAvatar(response.avatar);
+          setUserTheme(response.theme || 'green');
+          setIsLoggedIn(true);
+          socket.emit('getUserData', null, (data) => {
+            setContacts(data.contacts);
+            setGroups(data.groups);
+            setMessages(data.messages);
+            setPendingInvites(data.pendingInvites || []);
+          });
+        } else {
+          // Invalid token, clear it
+          localStorage.removeItem('sessionToken');
+        }
+      });
+    }
+  }, []);
+
   // Keep currentChatRef in sync
   useEffect(() => {
     currentChatRef.current = currentChat;
@@ -391,6 +415,10 @@ function App() {
         setUserTheme(response.theme || 'green');
         setIsLoggedIn(true);
         setAuthError('');
+        // Save session token for persistence
+        if (response.sessionToken) {
+          localStorage.setItem('sessionToken', response.sessionToken);
+        }
         socket.emit('getUserData', null, (data) => {
           setContacts(data.contacts);
           setGroups(data.groups);
@@ -404,6 +432,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('sessionToken');
     setIsLoggedIn(false);
     setUserName('');
     setNameInput('');
