@@ -6,7 +6,10 @@
       "Bash(timeout 3 node:*)",
       "Bash(node --check:*)",
       "Bash(npx vite build:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git rm:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)"
     ]
   }
 }

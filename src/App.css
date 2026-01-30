@@ -2746,3 +2746,193 @@ body {
 [data-theme="dark"] .game-invite.finished .game-invite-btn {
   background: #555;
 }
+
+/* Mobile Back Button */
+.mobile-back-btn {
+  display: none;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 5px 10px;
+  margin-right: 5px;
+  border-radius: 5px;
+}
+
+.mobile-back-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  .container {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    height: 100vh;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 10;
+    transition: transform 0.3s ease;
+  }
+
+  .sidebar.hidden-mobile {
+    transform: translateX(-100%);
+  }
+
+  .chat-area {
+    width: 100%;
+    height: 100vh;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 5;
+  }
+
+  .mobile-back-btn {
+    display: block;
+  }
+
+  .no-chat {
+    display: none;
+  }
+
+  /* Picker adjustments for mobile */
+  .picker-popup {
+    position: fixed;
+    bottom: 70px;
+    left: 10px;
+    right: 10px;
+    transform: none;
+    max-width: calc(100vw - 20px);
+  }
+
+  .picker-popup.emoji-picker,
+  .picker-popup.gif-picker {
+    width: auto;
+    max-height: 50vh;
+  }
+
+  .picker-popup.game-picker {
+    width: auto;
+  }
+
+  /* Settings page mobile */
+  .settings-page-content {
+    padding: 20px 15px;
+  }
+
+  .settings-page-footer {
+    padding: 15px;
+  }
+
+  /* Modal adjustments */
+  .modal {
+    width: 95%;
+    max-width: 95%;
+    margin: 10px;
+  }
+
+  .game-modal {
+    width: 95%;
+    max-width: 95%;
+  }
+
+  /* Chat input adjustments */
+  .chat-input-row {
+    flex-wrap: nowrap;
+  }
+
+  .chat-input {
+    min-width: 0;
+  }
+
+  .input-btn {
+    padding: 6px;
+    font-size: 1.1rem;
+  }
+
+  .send-btn {
+    padding: 10px 15px;
+    font-size: 0.9rem;
+  }
+
+  /* Messages */
+  .message {
+    max-width: 85%;
+  }
+
+  /* Sidebar header adjustments */
+  .sidebar-header {
+    padding: 12px;
+  }
+
+  .user-info .avatar {
+    width: 30px !important;
+    height: 30px !important;
+    font-size: 0.9rem !important;
+  }
+
+  /* Contact list touch targets */
+  .contact-item {
+    padding: 12px 15px;
+  }
+
+  /* Login box */
+  .login-box {
+    width: 95%;
+    max-width: 400px;
+    padding: 25px 20px;
+  }
+
+  /* Tabs */
+  .tab {
+    padding: 10px 8px;
+    font-size: 0.85rem;
+  }
+
+  /* Chat header */
+  .chat-header {
+    padding: 12px;
+  }
+
+  .chat-header .avatar {
+    width: 35px;
+    height: 35px;
+  }
+
+  /* Image messages */
+  .message-image {
+    max-width: 250px;
+  }
+}
+
+/* Extra small screens */
+@media (max-width: 400px) {
+  .header-buttons {
+    gap: 5px;
+  }
+
+  .header-btn {
+    padding: 6px 8px;
+    font-size: 0.75rem;
+  }
+
+  .logout-btn {
+    padding: 6px 10px;
+    font-size: 0.8rem;
+  }
+
+  .input-btn {
+    padding: 5px;
+    font-size: 1rem;
+  }
+
+  .send-btn {
+    padding: 8px 12px;
+  }
+}

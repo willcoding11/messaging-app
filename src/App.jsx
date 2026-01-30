@@ -87,6 +87,9 @@ function App() {
   // Unread messages state - tracks chatId -> unread count
   const [unreadMessages, setUnreadMessages] = useState({});
 
+  // Mobile state - hide sidebar when viewing chat
+  const [mobileShowChat, setMobileShowChat] = useState(false);
+
   const messagesEndRef = useRef(null);
   const currentChatRef = useRef(null);
   const soundEnabledRef = useRef(true);
@@ -482,6 +485,11 @@ function App() {
       const chatId = `group_${entity.id}`;
       setCurrentChat({ id: chatId, name: entity.name, type: 'group', groupId: entity.id, members: entity.members, creator: entity.creator, avatar: entity.avatar });
     }
+    setMobileShowChat(true);
+  };
+
+  const handleMobileBack = () => {
+    setMobileShowChat(false);
   };
 
   const handleTyping = () => {
@@ -1687,7 +1695,7 @@ function App() {
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       {/* Sidebar */}
-      <div className="sidebar">
+      <div className={`sidebar ${mobileShowChat ? 'hidden-mobile' : ''}`}>
         <div className="sidebar-header">
           <div className="user-info">
             <div className="avatar" style={{ width: 35, height: 35, fontSize: '1rem' }}>
@@ -1815,6 +1823,9 @@ function App() {
         ) : (
           <>
             <div className="chat-header">
+              <button className="mobile-back-btn" onClick={handleMobileBack}>
+                ←
+              </button>
               <div className={`avatar ${currentChat.type === 'group' ? 'group-avatar' : ''}`}>
                 {currentChat.avatar ? <img src={currentChat.avatar} alt={currentChat.name} /> : currentChat.name?.charAt(0).toUpperCase()}
                 {currentChat.type === 'contact' && (
