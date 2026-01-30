@@ -8,6 +8,7 @@ import cameraIconDark from '../assets/camera - dark mode.png';
 import emojiIconDark from '../assets/happy - dark mode.png';
 import gifIconDark from '../assets/gif - dark mode.png';
 import gamesIconDark from '../assets/console - dark mode.png';
+import notificationSound from '../assets/new-notification.mp3';
 
 // In production, connect to same origin. In dev, connect to port 3001
 const isDev = window.location.port === '3000';
@@ -128,24 +129,12 @@ function App() {
     soundEnabledRef.current = soundEnabled;
   }, [soundEnabled]);
 
-  // Play notification sound using Web Audio API
+  // Play notification sound
   const playNotificationSound = useCallback(() => {
     try {
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-
-      oscillator.frequency.value = 800;
-      oscillator.type = 'sine';
-
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.3);
+      const audio = new Audio(notificationSound);
+      audio.volume = 0.5;
+      audio.play();
     } catch (e) {
       // Audio not supported or blocked
     }
