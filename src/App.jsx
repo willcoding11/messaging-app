@@ -1892,50 +1892,52 @@ function App() {
             </div>
             <div className="chat-messages">
               {(messages[currentChat.id] || []).map((msg, idx) => (
-                <div key={idx} className={`message-wrapper ${msg.sent ? 'sent' : 'received'}`}>
-                  <div className={`message ${msg.sent ? 'sent' : 'received'}`}>
-                    {!msg.sent && currentChat.type === 'group' && (
-                      <div className="message-with-avatar">
-                        <div className="message-avatar">
-                          {getMemberAvatar(msg.sender) ? (
-                            <img src={getMemberAvatar(msg.sender)} alt={msg.sender} />
-                          ) : msg.sender?.charAt(0).toUpperCase()}
-                        </div>
+                <div key={idx} className={`message-wrapper ${msg.sent ? 'sent' : 'received'} ${!msg.sent && currentChat.type === 'group' ? 'group-message' : ''}`}>
+                  {!msg.sent && currentChat.type === 'group' && (
+                    <div className="message-avatar">
+                      {getMemberAvatar(msg.sender) ? (
+                        <img src={getMemberAvatar(msg.sender)} alt={msg.sender} />
+                      ) : msg.sender?.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="message-content-wrapper">
+                    <div className={`message ${msg.sent ? 'sent' : 'received'}`}>
+                      {!msg.sent && currentChat.type === 'group' && (
                         <div className="message-sender">{msg.sender}</div>
-                      </div>
-                    )}
-                    {msg.image && (
-                      <img
-                        src={msg.image}
-                        alt="Shared"
-                        className="message-image"
-                        onClick={() => window.open(msg.image, '_blank')}
-                      />
-                    )}
-                    {msg.game && (
-                      <div className={`game-invite ${msg.game.status}`}>
-                        <div className="game-invite-icon">{msg.game.icon}</div>
-                        <div className="game-invite-info">
-                          <div className="game-invite-name">{msg.game.name}</div>
-                          <div className="game-invite-status">
-                            {msg.game.status === 'finished'
-                              ? msg.game.winner === 'draw'
-                                ? "It's a draw!"
-                                : `${msg.game.winner} wins!`
-                              : `${msg.game.currentTurn}'s turn`}
+                      )}
+                      {msg.image && (
+                        <img
+                          src={msg.image}
+                          alt="Shared"
+                          className="message-image"
+                          onClick={() => window.open(msg.image, '_blank')}
+                        />
+                      )}
+                      {msg.game && (
+                        <div className={`game-invite ${msg.game.status}`}>
+                          <div className="game-invite-icon">{msg.game.icon}</div>
+                          <div className="game-invite-info">
+                            <div className="game-invite-name">{msg.game.name}</div>
+                            <div className="game-invite-status">
+                              {msg.game.status === 'finished'
+                                ? msg.game.winner === 'draw'
+                                  ? "It's a draw!"
+                                  : `${msg.game.winner} wins!`
+                                : `${msg.game.currentTurn}'s turn`}
+                            </div>
                           </div>
+                          <button
+                            className="game-invite-btn"
+                            onClick={() => openGame(msg.game, currentChat.id)}
+                          >
+                            {msg.game.status === 'active' ? `Start ${msg.game.name}` : 'View Result'}
+                          </button>
                         </div>
-                        <button
-                          className="game-invite-btn"
-                          onClick={() => openGame(msg.game, currentChat.id)}
-                        >
-                          {msg.game.status === 'active' ? `Start ${msg.game.name}` : 'View Result'}
-                        </button>
-                      </div>
-                    )}
-                    {msg.text && <div className="message-text">{renderMessageText(msg.text)}</div>}
+                      )}
+                      {msg.text && <div className="message-text">{renderMessageText(msg.text)}</div>}
+                    </div>
+                    <div className="message-time">{msg.timestamp ? formatMessageTime(msg.timestamp) : msg.time}</div>
                   </div>
-                  <div className="message-time">{msg.timestamp ? formatMessageTime(msg.timestamp) : msg.time}</div>
                 </div>
               ))}
               <div ref={messagesEndRef} />
