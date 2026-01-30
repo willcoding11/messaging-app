@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
+import cameraIcon from '../assets/camera.png';
+import emojiIcon from '../assets/happy.png';
+import gifIcon from '../assets/gif.png';
+import gamesIcon from '../assets/console.png';
 
 // In production, connect to same origin. In dev, connect to port 3001
 const isDev = window.location.port === '3000';
@@ -1931,7 +1935,7 @@ function App() {
                   title="Send image"
                   disabled={isUploading}
                 >
-                  📷
+                  <img src={cameraIcon} alt="Camera" className="input-icon" />
                 </button>
                 <button
                   className="input-btn"
@@ -1939,7 +1943,7 @@ function App() {
                   title="Emoji"
                   disabled={isUploading}
                 >
-                  😊
+                  <img src={emojiIcon} alt="Emoji" className="input-icon" />
                 </button>
                 <div className="picker-btn-wrapper">
                   <button
@@ -1948,7 +1952,7 @@ function App() {
                     title="GIF"
                     disabled={isUploading}
                   >
-                    GIF
+                    <img src={gifIcon} alt="GIF" className="input-icon" />
                   </button>
                   {showGifPicker && (
                     <div className="picker-popup gif-picker">
@@ -1994,7 +1998,7 @@ function App() {
                     title="Games"
                     disabled={isUploading || currentChat?.type === 'group'}
                   >
-                    🎮
+                    <img src={gamesIcon} alt="Games" className="input-icon" />
                   </button>
                   {showGamePicker && (
                     <div className="picker-popup game-picker">

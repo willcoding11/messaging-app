@@ -1525,6 +1525,12 @@ body {
   cursor: not-allowed;
 }
 
+.input-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
 /* Picker button wrapper for positioning */
 .picker-btn-wrapper {
   position: relative;
