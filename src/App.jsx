@@ -4,6 +4,10 @@ import cameraIcon from '../assets/camera.png';
 import emojiIcon from '../assets/happy.png';
 import gifIcon from '../assets/gif.png';
 import gamesIcon from '../assets/console.png';
+import cameraIconDark from '../assets/camera - dark mode.png';
+import emojiIconDark from '../assets/happy - dark mode.png';
+import gifIconDark from '../assets/gif - dark mode.png';
+import gamesIconDark from '../assets/console - dark mode.png';
 
 // In production, connect to same origin. In dev, connect to port 3001
 const isDev = window.location.port === '3000';
@@ -1950,7 +1954,7 @@ function App() {
                   title="Send image"
                   disabled={isUploading}
                 >
-                  <img src={cameraIcon} alt="Camera" className="input-icon" />
+                  <img src={userTheme === 'dark' ? cameraIconDark : cameraIcon} alt="Camera" className="input-icon" />
                 </button>
                 <button
                   className="input-btn"
@@ -1958,7 +1962,7 @@ function App() {
                   title="Emoji"
                   disabled={isUploading}
                 >
-                  <img src={emojiIcon} alt="Emoji" className="input-icon" />
+                  <img src={userTheme === 'dark' ? emojiIconDark : emojiIcon} alt="Emoji" className="input-icon" />
                 </button>
                 <div className="picker-btn-wrapper">
                   <button
@@ -1967,7 +1971,7 @@ function App() {
                     title="GIF"
                     disabled={isUploading}
                   >
-                    <img src={gifIcon} alt="GIF" className="input-icon" />
+                    <img src={userTheme === 'dark' ? gifIconDark : gifIcon} alt="GIF" className="input-icon" />
                   </button>
                   {showGifPicker && (
                     <div className="picker-popup gif-picker">
@@ -2013,7 +2017,7 @@ function App() {
                     title="Games"
                     disabled={isUploading || currentChat?.type === 'group'}
                   >
-                    <img src={gamesIcon} alt="Games" className="input-icon" />
+                    <img src={userTheme === 'dark' ? gamesIconDark : gamesIcon} alt="Games" className="input-icon" />
                   </button>
                   {showGamePicker && (
                     <div className="picker-popup game-picker">
