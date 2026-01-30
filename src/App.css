@@ -1149,11 +1149,13 @@ body {
 }
 
 [data-theme="dark"] .contact-item:hover {
-  background: #363636;
+  background: #3a3a3a;
+  border-left: 3px solid var(--accent);
 }
 
 [data-theme="dark"] .contact-item.active {
-  background: #404040;
+  background: #4a4a4a;
+  border-left: 3px solid var(--accent);
 }
 
 [data-theme="dark"] .contact-item.has-unread {

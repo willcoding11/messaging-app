@@ -160,6 +160,21 @@ function App() {
     }
   }, [currentChat]);
 
+  // Sync currentChat with contacts/groups when online status or avatar changes
+  useEffect(() => {
+    if (currentChat?.type === 'contact') {
+      const contact = contacts.find(c => c.name.toLowerCase() === currentChat.name.toLowerCase());
+      if (contact && (contact.online !== currentChat.online || contact.avatar !== currentChat.avatar)) {
+        setCurrentChat(prev => ({ ...prev, online: contact.online, avatar: contact.avatar }));
+      }
+    } else if (currentChat?.type === 'group') {
+      const group = groups.find(g => g.id === currentChat.groupId);
+      if (group && (group.avatar !== currentChat.avatar || group.name !== currentChat.name || group.members?.length !== currentChat.members?.length)) {
+        setCurrentChat(prev => ({ ...prev, avatar: group.avatar, name: group.name, members: group.members }));
+      }
+    }
+  }, [contacts, groups, currentChat]);
+
   // Format message time smartly based on when it was sent
   const formatMessageTime = useCallback((timestamp) => {
     if (!timestamp) return '';
