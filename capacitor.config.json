@@ -1,0 +1,9 @@
+{
+  "appId": "com.messagingapp.app",
+  "appName": "Messaging App",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  }
+}

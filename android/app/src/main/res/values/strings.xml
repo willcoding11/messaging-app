@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Messaging App</string>
+    <string name="title_activity_main">Messaging App</string>
+    <string name="package_name">com.messagingapp.app</string>
+    <string name="custom_url_scheme">com.messagingapp.app</string>
+</resources>

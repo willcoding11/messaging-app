@@ -9,6 +9,9 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@capacitor/android": "^8.0.2",
+    "@capacitor/cli": "^8.0.2",
+    "@capacitor/core": "^8.0.2",
     "@vitejs/plugin-react": "^4.3.4",
     "express": "^4.21.0",
     "mongoose": "^8.9.5",

@@ -12,9 +12,22 @@ import infoIcon from '../assets/info.png';
 import infoIconDark from '../assets/info - dark mode.png';
 import notificationSound from '../assets/new-notification.mp3';
 
-// In production, connect to same origin. In dev, connect to port 3001
+// Determine server URL based on environment
+const isCapacitor = window.location.protocol === 'capacitor:' || window.location.protocol === 'file:';
 const isDev = window.location.port === '3000';
-const serverUrl = isDev ? `http://${window.location.hostname}:3001` : undefined;
+
+let serverUrl;
+if (isCapacitor) {
+  // Android/iOS app - connect to production server
+  serverUrl = 'https://messaging-app-2lzh.onrender.com';
+} else if (isDev) {
+  // Local development
+  serverUrl = `http://${window.location.hostname}:3001`;
+} else {
+  // Web production - same origin
+  serverUrl = undefined;
+}
+
 const socket = io(serverUrl);
 
 function App() {
