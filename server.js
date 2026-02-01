@@ -102,29 +102,9 @@ const Message = mongoose.model('Message', messageSchema);
 const app = express();
 const server = createServer(app);
 
-const allowedOrigins = process.env.NODE_ENV === 'production'
-  ? [
-      process.env.ALLOWED_ORIGIN || 'http://localhost:3001',
-      'capacitor://localhost',
-      'https://localhost',
-      'http://localhost'
-    ]
-  : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'];
-
 const io = new Server(server, {
   cors: {
-    origin: (origin, callback) => {
-      // Allow requests with no origin (mobile apps, Postman, etc)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-      // Allow any capacitor or localhost origin for mobile apps
-      if (origin.startsWith('capacitor://') || origin.startsWith('https://localhost') || origin.startsWith('http://localhost')) {
-        return callback(null, true);
-      }
-      callback(new Error('Not allowed by CORS'));
-    },
+    origin: true, // Allow all origins (web + mobile apps)
     methods: ["GET", "POST"]
   }
 });
