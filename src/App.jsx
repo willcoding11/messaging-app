@@ -297,6 +297,14 @@ function App() {
       ));
     });
 
+    socket.on('contactRemoved', ({ name }) => {
+      setContacts(prev => prev.filter(c => c.name.toLowerCase() !== name.toLowerCase()));
+      setCurrentChat(prev => {
+        if (prev?.type === 'contact' && prev.name.toLowerCase() === name.toLowerCase()) return null;
+        return prev;
+      });
+    });
+
     socket.on('groupCreated', (group) => {
       setGroups(prev => {
         if (prev.some(g => g.id === group.id)) return prev;
@@ -371,6 +379,7 @@ function App() {
       socket.off('newMessage');
       socket.off('contactAdded');
       socket.off('contactUpdated');
+      socket.off('contactRemoved');
       socket.off('groupCreated');
       socket.off('groupDeleted');
       socket.off('groupUpdated');
@@ -882,6 +891,21 @@ function App() {
     setSettingsNewUsername(userName);
     setSettingsError('');
     setShowSettingsModal(true);
+  };
+
+  // Delete account state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const handleDeleteAccount = () => {
+    socket.emit('deleteAccount', null, (response) => {
+      if (response.success) {
+        localStorage.removeItem('sessionToken');
+        showToast('Account deleted', 'info');
+        setTimeout(() => window.location.reload(), 500);
+      } else {
+        showToast(response.error, 'error');
+      }
+    });
   };
 
   const saveSettings = () => {
@@ -2365,6 +2389,22 @@ function App() {
                 <span className="toggle-label">Message sound</span>
               </label>
             </div>
+            {userRole === 'user' && (
+              <div className="settings-section">
+                <h4>Delete Account</h4>
+                {!showDeleteConfirm ? (
+                  <button className="delete-account-btn" onClick={() => setShowDeleteConfirm(true)}>Delete My Account</button>
+                ) : (
+                  <div className="delete-confirm">
+                    <p className="delete-warning">This will permanently delete your account and remove you from the space. This cannot be undone.</p>
+                    <div className="delete-confirm-buttons">
+                      <button className="modal-btn cancel" onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
+                      <button className="modal-btn danger" onClick={handleDeleteAccount}>Yes, Delete My Account</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             {settingsError && <div className="error-message">{settingsError}</div>}
           </div>
           <div className="settings-page-footer">

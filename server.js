@@ -1042,11 +1042,45 @@ io.on('connection', (socket) => {
       space.members = space.members.filter(m => m !== targetLower);
       await space.save();
 
-      // Remove from all groups in space
-      await Group.updateMany(
-        { spaceCode: space.spaceCode },
-        { $pull: { members: { $regex: new RegExp(`^${targetName}$`, 'i') } } }
-      );
+      // Remove from all groups in space and get updated groups
+      const spaceGroups = await Group.find({ spaceCode: space.spaceCode });
+      for (const group of spaceGroups) {
+        const hadMember = group.members.some(m => m.toLowerCase() === targetLower);
+        if (hadMember) {
+          group.members = group.members.filter(m => m.toLowerCase() !== targetLower);
+          await group.save();
+
+          // Broadcast updated group to remaining members
+          const groupData = {
+            id: group.groupId,
+            name: group.name,
+            creator: group.creator,
+            members: group.members,
+            description: group.description,
+            avatar: group.avatar,
+            isMainGroup: group.isMainGroup || false
+          };
+          group.members.forEach(member => {
+            const memberSocket = onlineUsers.get(member.toLowerCase());
+            if (memberSocket) {
+              io.to(memberSocket).emit('groupUpdated', groupData);
+            }
+          });
+        }
+      }
+
+      // Tell all space members to remove this contact
+      for (const memberLower of space.members) {
+        const memberSocket = onlineUsers.get(memberLower);
+        if (memberSocket) {
+          io.to(memberSocket).emit('contactRemoved', { name: targetName });
+        }
+      }
+      // Also tell admin
+      const adminSocket = onlineUsers.get(space.adminNameLower);
+      if (adminSocket) {
+        io.to(adminSocket).emit('contactRemoved', { name: targetName });
+      }
 
       // Kick them if online
       const targetSocket = onlineUsers.get(targetLower);
@@ -1157,6 +1191,97 @@ io.on('connection', (socket) => {
     } catch (err) {
       console.error('getSpaceInfo error:', err);
       callback({ success: false, error: 'Failed to get space info' });
+    }
+  });
+
+  // ============ DELETE ACCOUNT (regular users only) ============
+  socket.on('deleteAccount', async (_, callback) => {
+    try {
+      if (!currentUser) {
+        callback({ success: false, error: 'Not logged in' });
+        return;
+      }
+
+      const lowerName = currentUser.toLowerCase();
+      const user = await User.findOne({ nameLower: lowerName });
+      if (!user) {
+        callback({ success: false, error: 'User not found' });
+        return;
+      }
+
+      if (user.role === 'supreme') {
+        callback({ success: false, error: 'Cannot delete the supreme account' });
+        return;
+      }
+
+      if (user.role === 'admin') {
+        callback({ success: false, error: 'Admin accounts cannot be self-deleted' });
+        return;
+      }
+
+      const deletedName = currentUser;
+
+      // Remove from space
+      if (user.spaceCode) {
+        const space = await Space.findOne({ spaceCode: user.spaceCode });
+        if (space) {
+          space.members = space.members.filter(m => m !== lowerName);
+          await space.save();
+
+          // Remove from all groups in space
+          const spaceGroups = await Group.find({ spaceCode: user.spaceCode });
+          for (const group of spaceGroups) {
+            const hadMember = group.members.some(m => m.toLowerCase() === lowerName);
+            if (hadMember) {
+              group.members = group.members.filter(m => m.toLowerCase() !== lowerName);
+              await group.save();
+
+              const groupData = {
+                id: group.groupId,
+                name: group.name,
+                creator: group.creator,
+                members: group.members,
+                description: group.description,
+                avatar: group.avatar,
+                isMainGroup: group.isMainGroup || false
+              };
+              group.members.forEach(member => {
+                const memberSocket = onlineUsers.get(member.toLowerCase());
+                if (memberSocket) {
+                  io.to(memberSocket).emit('groupUpdated', groupData);
+                }
+              });
+            }
+          }
+
+          // Tell all space members to remove this contact
+          for (const memberLower of space.members) {
+            const memberSocket = onlineUsers.get(memberLower);
+            if (memberSocket) {
+              io.to(memberSocket).emit('contactRemoved', { name: deletedName });
+            }
+          }
+          const adminSocket = onlineUsers.get(space.adminNameLower);
+          if (adminSocket) {
+            io.to(adminSocket).emit('contactRemoved', { name: deletedName });
+          }
+        }
+      }
+
+      // Delete the user document
+      await User.deleteOne({ nameLower: lowerName });
+
+      onlineUsers.delete(lowerName);
+      io.emit('userOffline', { name: deletedName });
+
+      currentUser = null;
+      currentUserRole = null;
+
+      console.log(`Account deleted: ${deletedName}`);
+      callback({ success: true });
+    } catch (err) {
+      console.error('deleteAccount error:', err);
+      callback({ success: false, error: 'Failed to delete account' });
     }
   });
 

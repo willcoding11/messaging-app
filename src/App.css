@@ -3611,6 +3611,54 @@ body {
   text-transform: uppercase;
 }
 
+/* ============ Delete Account ============ */
+
+.delete-account-btn {
+  padding: 12px 20px;
+  background: none;
+  color: #dc3545;
+  border: 2px solid #dc3545;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.2s;
+  width: 100%;
+}
+
+.delete-account-btn:hover {
+  background: #dc3545;
+  color: white;
+}
+
+.delete-confirm {
+  padding: 15px;
+  background: #fff5f5;
+  border: 1px solid #ffcdd2;
+  border-radius: 10px;
+}
+
+[data-theme="dark"] .delete-confirm {
+  background: #2a1a1a;
+  border-color: #4a2a2a;
+}
+
+.delete-warning {
+  color: #dc3545;
+  font-size: 0.9rem;
+  margin-bottom: 15px;
+  line-height: 1.5;
+}
+
+.delete-confirm-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.delete-confirm-buttons .modal-btn {
+  flex: 1;
+}
+
 /* Supreme dashboard mobile */
 @media (max-width: 768px) {
   .supreme-content {
