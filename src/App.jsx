@@ -12,43 +12,47 @@ import infoIcon from '../assets/info.png';
 import infoIconDark from '../assets/info - dark mode.png';
 import notificationSound from '../assets/new-notification.mp3';
 
-// Determine server URL based on environment
-const isCapacitor = window.location.protocol === 'capacitor:' || window.location.protocol === 'file:';
-const isDev = window.location.port === '3000';
+const isCapacitor = window.location.protocol === 'capacitor:' ||
+                    window.location.protocol === 'file:' ||
+                    (window.location.hostname === 'localhost' && !window.location.port);
+const isDev = window.location.port === '3000' || window.location.port === '5173';
 
 let serverUrl;
 if (isCapacitor) {
-  // Android/iOS app - connect to production server
   serverUrl = 'https://messaging-app-2lzh.onrender.com';
 } else if (isDev) {
-  // Local development
   serverUrl = `http://${window.location.hostname}:3001`;
 } else {
-  // Web production - same origin
   serverUrl = undefined;
 }
 
 const socket = io(serverUrl);
 
 function App() {
+  // Auth state
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [authMode, setAuthMode] = useState('login');
+  const [loginStep, setLoginStep] = useState('name'); // 'name', 'password', 'spaceCode'
+  const [loginType, setLoginType] = useState(null); // 'supreme', 'admin', 'user'
   const [userName, setUserName] = useState('');
+  const [userRole, setUserRole] = useState(null);
   const [nameInput, setNameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
+  const [spaceCodeInput, setSpaceCodeInput] = useState('');
   const [authError, setAuthError] = useState('');
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [isConnected, setIsConnected] = useState(socket.connected);
+
+  // Space state
+  const [spaceCode, setSpaceCode] = useState(null);
+  const [spaceName, setSpaceName] = useState('');
+
+  // Chat state
   const [contacts, setContacts] = useState([]);
   const [groups, setGroups] = useState([]);
   const [messages, setMessages] = useState({});
   const [currentChat, setCurrentChat] = useState(null);
   const [currentTab, setCurrentTab] = useState('contacts');
   const [messageInput, setMessageInput] = useState('');
-  const [showContactModal, setShowContactModal] = useState(false);
-  const [showGroupModal, setShowGroupModal] = useState(false);
-  const [newContactName, setNewContactName] = useState('');
-  const [newGroupName, setNewGroupName] = useState('');
-  const [selectedMembers, setSelectedMembers] = useState([]);
-  const [contactError, setContactError] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
@@ -58,9 +62,6 @@ function App() {
   const [userTheme, setUserTheme] = useState('green');
   const [userAvatar, setUserAvatar] = useState(null);
   const [typingUsers, setTypingUsers] = useState({});
-  const [settingsCurrentPassword, setSettingsCurrentPassword] = useState('');
-  const [settingsNewPassword, setSettingsNewPassword] = useState('');
-  const [settingsConfirmPassword, setSettingsConfirmPassword] = useState('');
   const [settingsError, setSettingsError] = useState('');
   const [tempAvatar, setTempAvatar] = useState(null);
   const [tempTheme, setTempTheme] = useState('green');
@@ -72,9 +73,6 @@ function App() {
   const [tempGroupAvatar, setTempGroupAvatar] = useState(null);
   const [newMemberName, setNewMemberName] = useState('');
   const [groupSettingsError, setGroupSettingsError] = useState('');
-
-  // Invites state
-  const [pendingInvites, setPendingInvites] = useState([]);
 
   // Toast notifications
   const [toasts, setToasts] = useState([]);
@@ -101,18 +99,35 @@ function App() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [tempSoundEnabled, setTempSoundEnabled] = useState(true);
 
-  // Confirmation popup state
-  const [contactToRemove, setContactToRemove] = useState(null);
-
   // Game state
   const [showGamePicker, setShowGamePicker] = useState(false);
-  const [activeGame, setActiveGame] = useState(null); // { gameId, gameType, players, state, chatId }
+  const [activeGame, setActiveGame] = useState(null);
 
-  // Unread messages state - tracks chatId -> unread count
+  // Unread messages
   const [unreadMessages, setUnreadMessages] = useState({});
 
-  // Mobile state - hide sidebar when viewing chat
+  // Mobile state
   const [mobileShowChat, setMobileShowChat] = useState(false);
+
+  // Group modal state
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState([]);
+
+  // Admin state
+  const [spaceInfo, setSpaceInfo] = useState(null);
+  const [showSpaceSettings, setShowSpaceSettings] = useState(false);
+  const [banNameInput, setBanNameInput] = useState('');
+
+  // Supreme dashboard state
+  const [allSpaces, setAllSpaces] = useState([]);
+  const [selectedSpace, setSelectedSpace] = useState(null);
+  const [spaceDetails, setSpaceDetails] = useState(null);
+  const [supremeViewChat, setSupremeViewChat] = useState(null);
+  const [supremeChatMessages, setSupremeChatMessages] = useState([]);
+  const [createSpaceForm, setCreateSpaceForm] = useState({ name: '', adminName: '', adminPassword: '' });
+  const [showCreateSpace, setShowCreateSpace] = useState(false);
+  const [supremeError, setSupremeError] = useState('');
 
   const messagesEndRef = useRef(null);
   const currentChatRef = useRef(null);
@@ -125,7 +140,6 @@ function App() {
   const cropperRef = useRef(null);
   const canvasRef = useRef(null);
 
-  // Toast function
   const showToast = useCallback((message, type = 'info') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
@@ -134,45 +148,58 @@ function App() {
     }, 3000);
   }, []);
 
-  // Apply theme to document
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', userTheme);
   }, [userTheme]);
 
-  // Sync sound enabled state with ref
   useEffect(() => {
     soundEnabledRef.current = soundEnabled;
   }, [soundEnabled]);
 
-  // Play notification sound
   const playNotificationSound = useCallback(() => {
     try {
       const audio = new Audio(notificationSound);
       audio.volume = 0.5;
       audio.play();
-    } catch (e) {
-      // Audio not supported or blocked
-    }
+    } catch (e) {}
   }, []);
 
-  // Restore session on app load
+  // Track socket connection
+  useEffect(() => {
+    const onConnect = () => setIsConnected(true);
+    const onDisconnect = () => setIsConnected(false);
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+    };
+  }, []);
+
+  // Restore session on load
   useEffect(() => {
     const sessionToken = localStorage.getItem('sessionToken');
     if (sessionToken && !isLoggedIn) {
       socket.emit('restoreSession', { sessionToken }, (response) => {
         if (response.success) {
           setUserName(response.name);
+          setUserRole(response.role);
           setUserAvatar(response.avatar);
           setUserTheme(response.theme || 'green');
+          setSpaceCode(response.spaceCode);
+          setSpaceName(response.spaceName || '');
           setIsLoggedIn(true);
-          socket.emit('getUserData', null, (data) => {
-            setContacts(data.contacts);
-            setGroups(data.groups);
-            setMessages(data.messages);
-            setPendingInvites(data.pendingInvites || []);
-          });
+          if (response.role === 'supreme') {
+            loadSpaces();
+          } else {
+            socket.emit('getUserData', null, (data) => {
+              setContacts(data.contacts);
+              setGroups(data.groups);
+              setMessages(data.messages);
+              if (data.spaceInfo) setSpaceInfo(data.spaceInfo);
+            });
+          }
         } else {
-          // Invalid token, clear it
           localStorage.removeItem('sessionToken');
         }
       });
@@ -182,7 +209,6 @@ function App() {
   // Keep currentChatRef in sync
   useEffect(() => {
     currentChatRef.current = currentChat;
-    // Clear unread when opening a chat
     if (currentChat?.id) {
       setUnreadMessages(prev => {
         const updated = { ...prev };
@@ -192,7 +218,7 @@ function App() {
     }
   }, [currentChat]);
 
-  // Sync currentChat with contacts/groups when online status or avatar changes
+  // Sync currentChat with contacts/groups
   useEffect(() => {
     if (currentChat?.type === 'contact') {
       const contact = contacts.find(c => c.name.toLowerCase() === currentChat.name.toLowerCase());
@@ -207,36 +233,21 @@ function App() {
     }
   }, [contacts, groups, currentChat]);
 
-  // Format message time smartly based on when it was sent
   const formatMessageTime = useCallback((timestamp) => {
     if (!timestamp) return '';
-
     const date = new Date(timestamp);
     const now = new Date();
     const diffMs = now - date;
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
     const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
-
-    // Same day - just show time
-    if (date.toDateString() === now.toDateString()) {
-      return timeStr;
-    }
-
-    // Yesterday
+    if (date.toDateString() === now.toDateString()) return timeStr;
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
-    if (date.toDateString() === yesterday.toDateString()) {
-      return `Yesterday ${timeStr}`;
-    }
-
-    // Within the last week - show day name
+    if (date.toDateString() === yesterday.toDateString()) return `Yesterday ${timeStr}`;
     if (diffDays < 7) {
       const dayName = date.toLocaleDateString([], { weekday: 'long' });
       return `${dayName} ${timeStr}`;
     }
-
-    // Older - show full date
     const monthDay = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
     const year = date.getFullYear();
     const dayName = date.toLocaleDateString([], { weekday: 'long' });
@@ -258,16 +269,13 @@ function App() {
     });
 
     socket.on('newMessage', ({ chatId, message }) => {
-      console.log('newMessage received:', { chatId, hasGame: !!message.game, message });
       setMessages(prev => ({
         ...prev,
         [chatId]: [...(prev[chatId] || []), message]
       }));
-      // Play notification sound for received messages
       if (!message.sent && soundEnabledRef.current) {
         playNotificationSound();
       }
-      // Track unread messages if not currently viewing this chat
       if (!message.sent && currentChatRef.current?.id !== chatId) {
         setUnreadMessages(prev => ({
           ...prev,
@@ -326,23 +334,16 @@ function App() {
       });
     });
 
-    socket.on('newInvite', (invite) => {
-      setPendingInvites(prev => [...prev, invite]);
-      showToast(`${invite.from} wants to add you as a contact`, 'info');
-    });
-
-    socket.on('inviteAccepted', ({ by }) => {
-      showToast(`${by} accepted your contact request`, 'success');
-    });
-
     socket.on('error', ({ message }) => {
       showToast(message, 'error');
     });
 
-    socket.on('gameUpdated', ({ chatId, gameId, game }) => {
-      console.log('gameUpdated received:', { chatId, gameId, currentTurn: game.currentTurn, status: game.status });
+    socket.on('banned', ({ spaceName }) => {
+      showToast(`You have been banned from ${spaceName}`, 'error');
+      handleLogout();
+    });
 
-      // Update the game in messages
+    socket.on('gameUpdated', ({ chatId, gameId, game }) => {
       setMessages(prev => {
         const chatMessages = prev[chatId] || [];
         return {
@@ -356,10 +357,8 @@ function App() {
         };
       });
 
-      // Update active game if it's the same one
       setActiveGame(prev => {
         if (prev && prev.id === gameId) {
-          console.log('gameUpdated: Updating active game');
           return { ...game, chatId };
         }
         return prev;
@@ -376,50 +375,130 @@ function App() {
       socket.off('groupDeleted');
       socket.off('groupUpdated');
       socket.off('userTyping');
-      socket.off('newInvite');
-      socket.off('inviteAccepted');
       socket.off('error');
+      socket.off('banned');
       socket.off('gameUpdated');
     };
   }, [showToast]);
 
   const prevChatRef = useRef(null);
   useEffect(() => {
-    // Use instant scroll when switching chats, smooth scroll for new messages
     const isNewChat = prevChatRef.current?.id !== currentChat?.id;
     prevChatRef.current = currentChat;
-
-    // Small delay to ensure DOM is updated with messages
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: isNewChat ? 'instant' : 'smooth' });
     }, isNewChat ? 50 : 0);
   }, [messages, currentChat]);
 
-  const handleAuth = () => {
-    if (!nameInput.trim() || !passwordInput) {
-      setAuthError('Please enter name and password');
+  // ============ AUTH FUNCTIONS ============
+
+  const handleCheckName = () => {
+    if (!nameInput.trim()) {
+      setAuthError('Please enter your name');
       return;
     }
 
-    if (nameInput.trim().length > 20) {
-      setAuthError('Username must be 20 characters or less');
+    if (!isConnected) {
+      setAuthError('Connecting to server... please wait');
       return;
     }
 
-    if (passwordInput.length > 50) {
-      setAuthError('Password must be 50 characters or less');
+    setIsAuthenticating(true);
+    setAuthError('');
+
+    const timeout = setTimeout(() => {
+      setIsAuthenticating(false);
+      setAuthError('Server is waking up, please try again...');
+    }, 15000);
+
+    socket.emit('checkName', { name: nameInput.trim() }, (response) => {
+      clearTimeout(timeout);
+      setIsAuthenticating(false);
+
+      if (response.success) {
+        setLoginType(response.type);
+        if (response.type === 'supreme' || response.type === 'admin') {
+          setLoginStep('password');
+        } else {
+          setLoginStep('spaceCode');
+        }
+      } else {
+        setAuthError(response.error);
+      }
+    });
+  };
+
+  const handlePasswordLogin = () => {
+    if (!passwordInput) {
+      setAuthError('Please enter your password');
       return;
     }
 
-    const event = authMode === 'login' ? 'login' : 'register';
+    setIsAuthenticating(true);
+    setAuthError('');
+
+    const timeout = setTimeout(() => {
+      setIsAuthenticating(false);
+      setAuthError('Server is waking up, please try again...');
+    }, 15000);
+
+    const event = loginType === 'supreme' ? 'supremeLogin' : 'adminLogin';
     socket.emit(event, { name: nameInput.trim(), password: passwordInput }, (response) => {
+      clearTimeout(timeout);
+      setIsAuthenticating(false);
+
       if (response.success) {
         setUserName(response.name);
+        setUserRole(response.role);
         setUserAvatar(response.avatar);
         setUserTheme(response.theme || 'green');
+        setSpaceCode(response.spaceCode || null);
         setIsLoggedIn(true);
-        setAuthError('');
-        // Save session token for persistence
+        if (response.sessionToken) {
+          localStorage.setItem('sessionToken', response.sessionToken);
+        }
+        if (response.role === 'supreme') {
+          loadSpaces();
+        } else {
+          socket.emit('getUserData', null, (data) => {
+            setContacts(data.contacts);
+            setGroups(data.groups);
+            setMessages(data.messages);
+            if (data.spaceInfo) setSpaceInfo(data.spaceInfo);
+          });
+        }
+      } else {
+        setAuthError(response.error);
+      }
+    });
+  };
+
+  const handleSpaceCodeLogin = () => {
+    if (!spaceCodeInput || spaceCodeInput.length !== 5) {
+      setAuthError('Please enter a valid 5-digit space code');
+      return;
+    }
+
+    setIsAuthenticating(true);
+    setAuthError('');
+
+    const timeout = setTimeout(() => {
+      setIsAuthenticating(false);
+      setAuthError('Server is waking up, please try again...');
+    }, 15000);
+
+    socket.emit('userLogin', { name: nameInput.trim(), spaceCode: spaceCodeInput }, (response) => {
+      clearTimeout(timeout);
+      setIsAuthenticating(false);
+
+      if (response.success) {
+        setUserName(response.name);
+        setUserRole('user');
+        setUserAvatar(response.avatar);
+        setUserTheme(response.theme || 'green');
+        setSpaceCode(response.spaceCode);
+        setSpaceName(response.spaceName || '');
+        setIsLoggedIn(true);
         if (response.sessionToken) {
           localStorage.setItem('sessionToken', response.sessionToken);
         }
@@ -427,8 +506,10 @@ function App() {
           setContacts(data.contacts);
           setGroups(data.groups);
           setMessages(data.messages);
-          setPendingInvites(data.pendingInvites || []);
         });
+        if (response.isNewUser) {
+          showToast('Welcome! Your account has been created.', 'success');
+        }
       } else {
         setAuthError(response.error);
       }
@@ -439,94 +520,141 @@ function App() {
     localStorage.removeItem('sessionToken');
     setIsLoggedIn(false);
     setUserName('');
+    setUserRole(null);
     setNameInput('');
     setPasswordInput('');
+    setSpaceCodeInput('');
+    setLoginStep('name');
+    setLoginType(null);
     setContacts([]);
     setGroups([]);
     setMessages({});
     setCurrentChat(null);
     setUserAvatar(null);
     setUserTheme('green');
-    setPendingInvites([]);
+    setSpaceCode(null);
+    setSpaceName('');
+    setSpaceInfo(null);
+    setAllSpaces([]);
+    setSelectedSpace(null);
+    setSpaceDetails(null);
+    setSupremeViewChat(null);
+    setSupremeChatMessages([]);
     window.location.reload();
   };
 
-  const addContact = () => {
-    if (!newContactName.trim()) {
-      setContactError('Please enter a name');
-      return;
-    }
+  // ============ SUPREME FUNCTIONS ============
 
-    socket.emit('addContact', { contactName: newContactName.trim() }, (response) => {
+  const loadSpaces = () => {
+    socket.emit('getSpaces', null, (response) => {
       if (response.success) {
-        if (response.contact) {
-          setContacts(prev => [...prev, response.contact]);
-        }
-        setNewContactName('');
-        setContactError('');
-        setShowContactModal(false);
-        showToast(response.message || 'Invite sent!', 'success');
-      } else {
-        setContactError(response.error);
+        setAllSpaces(response.spaces);
       }
     });
   };
 
-  const acceptInvite = (fromName) => {
-    socket.emit('acceptInvite', { fromName }, (response) => {
+  const viewSpaceDetails = (spaceCode) => {
+    socket.emit('getSpaceDetails', { spaceCode }, (response) => {
       if (response.success) {
-        setPendingInvites(prev => prev.filter(i => i.from !== fromName));
-        setContacts(prev => [...prev, response.contact]);
-        showToast(`${fromName} added to contacts`, 'success');
+        setSpaceDetails(response.space);
+        setSelectedSpace(spaceCode);
+        setSupremeViewChat(null);
+        setSupremeChatMessages([]);
+      }
+    });
+  };
+
+  const viewChat = (chatId) => {
+    socket.emit('readChat', { chatId }, (response) => {
+      if (response.success) {
+        setSupremeViewChat(chatId);
+        setSupremeChatMessages(response.messages);
+      }
+    });
+  };
+
+  const handleCreateSpace = () => {
+    if (!createSpaceForm.name || !createSpaceForm.adminName || !createSpaceForm.adminPassword) {
+      setSupremeError('All fields required');
+      return;
+    }
+
+    socket.emit('createSpace', createSpaceForm, (response) => {
+      if (response.success) {
+        setShowCreateSpace(false);
+        setCreateSpaceForm({ name: '', adminName: '', adminPassword: '' });
+        setSupremeError('');
+        loadSpaces();
+        showToast(`Space "${response.space.name}" created! Code: ${response.space.code}`, 'success');
+      } else {
+        setSupremeError(response.error);
+      }
+    });
+  };
+
+  const handleDeleteSpace = (spaceCode) => {
+    socket.emit('deleteSpace', { spaceCode }, (response) => {
+      if (response.success) {
+        loadSpaces();
+        setSelectedSpace(null);
+        setSpaceDetails(null);
+        showToast('Space deleted', 'info');
       } else {
         showToast(response.error, 'error');
       }
     });
   };
 
-  const declineInvite = (fromName) => {
-    socket.emit('declineInvite', { fromName }, (response) => {
+  // ============ ADMIN FUNCTIONS ============
+
+  const handleBanUser = () => {
+    if (!banNameInput.trim()) return;
+    socket.emit('banUser', { userName: banNameInput.trim() }, (response) => {
       if (response.success) {
-        setPendingInvites(prev => prev.filter(i => i.from !== fromName));
-        showToast('Invite declined', 'info');
+        showToast(`${banNameInput.trim()} has been banned`, 'success');
+        setBanNameInput('');
+        // Refresh space info
+        socket.emit('getSpaceInfo', null, (res) => {
+          if (res.success) setSpaceInfo(res.spaceInfo);
+        });
+        // Refresh contacts
+        socket.emit('getUserData', null, (data) => {
+          setContacts(data.contacts);
+        });
+      } else {
+        showToast(response.error, 'error');
       }
     });
   };
 
-  const confirmRemoveContact = (contactName) => {
-    setContactToRemove(contactName);
-  };
-
-  const removeContact = () => {
-    if (!contactToRemove) return;
-    socket.emit('removeContact', { contactName: contactToRemove });
-    setContacts(prev => prev.filter(c => c.name.toLowerCase() !== contactToRemove.toLowerCase()));
-    if (currentChat?.name?.toLowerCase() === contactToRemove.toLowerCase()) {
-      setCurrentChat(null);
-    }
-    showToast('Contact removed', 'info');
-    setContactToRemove(null);
-  };
-
-  const createGroup = () => {
-    if (!newGroupName.trim()) return;
-    if (selectedMembers.length === 0) return;
-
-    socket.emit('createGroup', { name: newGroupName.trim(), members: selectedMembers }, (response) => {
+  const handleUnbanUser = (name) => {
+    socket.emit('unbanUser', { userName: name }, (response) => {
       if (response.success) {
-        setNewGroupName('');
-        setSelectedMembers([]);
-        setShowGroupModal(false);
-        setCurrentTab('groups');
-        showToast('Group created', 'success');
+        showToast(`${name} has been unbanned`, 'success');
+        socket.emit('getSpaceInfo', null, (res) => {
+          if (res.success) setSpaceInfo(res.spaceInfo);
+        });
+      } else {
+        showToast(response.error, 'error');
       }
     });
   };
 
-  const deleteGroup = (groupId) => {
-    socket.emit('deleteGroup', { groupId });
-    showToast('Group deleted', 'info');
+  const handleChangeSpaceCode = () => {
+    socket.emit('changeSpaceCode', null, (response) => {
+      if (response.success) {
+        showToast(`Space code changed to: ${response.newCode}`, 'success');
+        setSpaceCode(response.newCode);
+        socket.emit('getSpaceInfo', null, (res) => {
+          if (res.success) setSpaceInfo(res.spaceInfo);
+        });
+      } else {
+        showToast(response.error, 'error');
+      }
+    });
   };
+
+  // ============ CHAT FUNCTIONS ============
 
   const getChatId = (contactName) => {
     const sorted = [userName.toLowerCase(), contactName.toLowerCase()].sort();
@@ -539,7 +667,7 @@ function App() {
       setCurrentChat({ id: chatId, name: entity.name, type: 'contact', online: entity.online, avatar: entity.avatar });
     } else {
       const chatId = `group_${entity.id}`;
-      setCurrentChat({ id: chatId, name: entity.name, type: 'group', groupId: entity.id, members: entity.members, creator: entity.creator, avatar: entity.avatar });
+      setCurrentChat({ id: chatId, name: entity.name, type: 'group', groupId: entity.id, members: entity.members, creator: entity.creator, avatar: entity.avatar, isMainGroup: entity.isMainGroup });
     }
     setMobileShowChat(true);
   };
@@ -550,18 +678,12 @@ function App() {
 
   const handleTyping = () => {
     if (!currentChat) return;
-
     const recipient = currentChat.type === 'contact' ? currentChat.name : currentChat.groupId;
-
     if (!isTypingRef.current) {
       isTypingRef.current = true;
       socket.emit('startTyping', { chatId: currentChat.id, chatType: currentChat.type, recipient });
     }
-
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
       isTypingRef.current = false;
       socket.emit('stopTyping', { chatId: currentChat.id, chatType: currentChat.type, recipient });
@@ -577,9 +699,7 @@ function App() {
       const recipient = currentChat.type === 'contact' ? currentChat.name : currentChat.groupId;
       socket.emit('stopTyping', { chatId: currentChat.id, chatType: currentChat.type, recipient });
     }
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
 
     const message = {
       text: text || messageInput.trim() || '',
@@ -589,7 +709,6 @@ function App() {
     };
 
     const recipient = currentChat.type === 'contact' ? currentChat.name : currentChat.groupId;
-
     socket.emit('sendMessage', {
       chatId: currentChat.id,
       chatType: currentChat.type,
@@ -603,19 +722,16 @@ function App() {
   const handleImageSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (file.size > 5 * 1024 * 1024) {
       showToast('Image too large. Max size is 5MB.', 'error');
       e.target.value = '';
       return;
     }
-
     if (!file.type.startsWith('image/')) {
       showToast('Please select an image file.', 'error');
       e.target.value = '';
       return;
     }
-
     e.target.value = '';
     uploadAndSendImage(file);
   };
@@ -623,21 +739,15 @@ function App() {
   const uploadAndSendImage = (file) => {
     setIsUploading(true);
     setUploadProgress(0);
-
     const reader = new FileReader();
     reader.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const progress = Math.round((event.loaded / event.total) * 100);
-        setUploadProgress(progress);
-      }
+      if (event.lengthComputable) setUploadProgress(Math.round((event.loaded / event.total) * 100));
     };
     reader.onload = (event) => {
       const base64 = event.target?.result;
       if (base64) {
         setUploadProgress(100);
-        try {
-          sendMessage('', base64);
-        } catch (error) {
+        try { sendMessage('', base64); } catch (error) {
           showToast('Failed to send image. File may be too large.', 'error');
         }
       }
@@ -649,13 +759,8 @@ function App() {
       setIsUploading(false);
       setUploadProgress(0);
     };
-    reader.onabort = () => {
-      setIsUploading(false);
-      setUploadProgress(0);
-    };
-    try {
-      reader.readAsDataURL(file);
-    } catch (error) {
+    reader.onabort = () => { setIsUploading(false); setUploadProgress(0); };
+    try { reader.readAsDataURL(file); } catch (error) {
       showToast('Failed to process image.', 'error');
       setIsUploading(false);
       setUploadProgress(0);
@@ -664,10 +769,8 @@ function App() {
 
   const handlePaste = (e) => {
     if (!currentChat || isUploading) return;
-
     const items = e.clipboardData?.items;
     if (!items) return;
-
     for (const item of items) {
       if (item.type.startsWith('image/')) {
         e.preventDefault();
@@ -687,45 +790,34 @@ function App() {
   const handleAvatarSelect = (e, isGroup = false) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (file.size > 2 * 1024 * 1024) {
       showToast('Image too large. Max size is 2MB.', 'error');
       e.target.value = '';
       return;
     }
-
     if (!file.type.startsWith('image/')) {
       showToast('Please select an image file.', 'error');
       e.target.value = '';
       return;
     }
-
     e.target.value = '';
-
     const reader = new FileReader();
     reader.onload = (event) => {
       const base64 = event.target?.result;
-      if (base64) {
-        openCropper(base64, isGroup);
-      } else {
-        showToast('Failed to load image.', 'error');
-      }
+      if (base64) openCropper(base64, isGroup);
+      else showToast('Failed to load image.', 'error');
     };
-    reader.onerror = () => {
-      showToast('Failed to read image file.', 'error');
-    };
+    reader.onerror = () => showToast('Failed to read image file.', 'error');
     reader.readAsDataURL(file);
   };
 
   const openCropper = (imageData, isGroup = false) => {
-    // Calculate minimum scale based on image dimensions
     const img = new Image();
     img.onload = () => {
-      const cropSize = 200; // The crop circle diameter
+      const cropSize = 200;
       const smallerDimension = Math.min(img.width, img.height);
-      // Min scale = when smallest dimension exactly fills the crop circle
       const calculatedMinScale = cropSize / smallerDimension;
-      setMinCropScale(Math.min(calculatedMinScale, 1)); // Cap at 1 if image is smaller than crop
+      setMinCropScale(Math.min(calculatedMinScale, 1));
       setCropperImage(imageData);
       setCropperIsGroup(isGroup);
       setCropPosition({ x: 0, y: 0 });
@@ -737,9 +829,7 @@ function App() {
 
   const editExistingAvatar = (isGroup = false) => {
     const currentImage = isGroup ? tempGroupAvatar : tempAvatar;
-    if (currentImage) {
-      openCropper(currentImage, isGroup);
-    }
+    if (currentImage) openCropper(currentImage, isGroup);
   };
 
   const handleCropMouseDown = (e) => {
@@ -749,15 +839,10 @@ function App() {
 
   const handleCropMouseMove = (e) => {
     if (!isDragging) return;
-    setCropPosition({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y
-    });
+    setCropPosition({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
   };
 
-  const handleCropMouseUp = () => {
-    setIsDragging(false);
-  };
+  const handleCropMouseUp = () => setIsDragging(false);
 
   const applyCrop = () => {
     const canvas = canvasRef.current;
@@ -767,82 +852,44 @@ function App() {
       const outputSize = 200;
       canvas.width = outputSize;
       canvas.height = outputSize;
-
-      // The crop circle/square is 200px centered in the cropper container
       const cropSize = 200;
-
-      // Image center is at center of original image
       const imgCenterX = img.width / 2;
       const imgCenterY = img.height / 2;
-
-      // cropPosition moves the image, so negative offset gets the crop region
-      // When user drags right (positive x), image shows more of left side
       const offsetX = -cropPosition.x / cropScale;
       const offsetY = -cropPosition.y / cropScale;
-
-      // Source rectangle in original image coordinates
       const sourceSize = cropSize / cropScale;
       const sourceX = imgCenterX + offsetX - sourceSize / 2;
       const sourceY = imgCenterY + offsetY - sourceSize / 2;
-
-      // Clamp source coordinates to valid range
       const clampedSourceX = Math.max(0, Math.min(sourceX, img.width - sourceSize));
       const clampedSourceY = Math.max(0, Math.min(sourceY, img.height - sourceSize));
       const clampedSourceSize = Math.min(sourceSize, img.width, img.height);
-
       ctx.drawImage(img, clampedSourceX, clampedSourceY, clampedSourceSize, clampedSourceSize, 0, 0, outputSize, outputSize);
-
       const croppedBase64 = canvas.toDataURL('image/jpeg', 0.8);
-
-      if (cropperIsGroup) {
-        setTempGroupAvatar(croppedBase64);
-      } else {
-        setTempAvatar(croppedBase64);
-      }
+      if (cropperIsGroup) setTempGroupAvatar(croppedBase64);
+      else setTempAvatar(croppedBase64);
       setShowCropper(false);
       setCropperImage(null);
     };
     img.src = cropperImage;
   };
 
+  // ============ SETTINGS ============
+
   const openSettingsModal = () => {
     setTempAvatar(userAvatar);
     setTempTheme(userTheme);
     setTempSoundEnabled(soundEnabled);
     setSettingsNewUsername(userName);
-    setSettingsCurrentPassword('');
-    setSettingsNewPassword('');
-    setSettingsConfirmPassword('');
     setSettingsError('');
     setShowSettingsModal(true);
   };
 
   const saveSettings = () => {
-    if (settingsNewPassword || settingsConfirmPassword) {
-      if (!settingsCurrentPassword) {
-        setSettingsError('Current password required to change password');
-        return;
-      }
-      if (settingsNewPassword !== settingsConfirmPassword) {
-        setSettingsError('New passwords do not match');
-        return;
-      }
-      if (settingsNewPassword.length < 4) {
-        setSettingsError('New password must be at least 4 characters');
-        return;
-      }
-    }
-
     const updates = {
       avatar: tempAvatar,
       theme: tempTheme,
       newUsername: settingsNewUsername
     };
-
-    if (settingsNewPassword) {
-      updates.currentPassword = settingsCurrentPassword;
-      updates.newPassword = settingsNewPassword;
-    }
 
     socket.emit('updateProfile', updates, (response) => {
       if (response.success) {
@@ -851,7 +898,7 @@ function App() {
         setSoundEnabled(tempSoundEnabled);
         if (response.nameChanged) {
           setUserName(response.name);
-          showToast('Username changed successfully', 'success');
+          showToast('Name changed successfully', 'success');
         }
         setShowSettingsModal(false);
         showToast('Settings saved', 'success');
@@ -865,7 +912,6 @@ function App() {
     if (!currentChat || currentChat.type !== 'group') return;
     const group = groups.find(g => g.id === currentChat.groupId);
     if (!group) return;
-
     setEditGroupName(group.name);
     setEditGroupDescription(group.description || '');
     setTempGroupAvatar(group.avatar || null);
@@ -876,7 +922,6 @@ function App() {
 
   const saveGroupSettings = () => {
     if (!currentChat || currentChat.type !== 'group') return;
-
     socket.emit('updateGroup', {
       groupId: currentChat.groupId,
       name: editGroupName,
@@ -894,7 +939,6 @@ function App() {
 
   const addGroupMember = () => {
     if (!newMemberName.trim() || !currentChat?.groupId) return;
-
     socket.emit('addGroupMember', {
       groupId: currentChat.groupId,
       memberName: newMemberName.trim()
@@ -911,22 +955,17 @@ function App() {
 
   const removeGroupMember = (memberName) => {
     if (!currentChat?.groupId) return;
-
     socket.emit('removeGroupMember', {
       groupId: currentChat.groupId,
       memberName
     }, (response) => {
-      if (response.success) {
-        showToast('Member removed', 'info');
-      } else {
-        setGroupSettingsError(response.error);
-      }
+      if (response.success) showToast('Member removed', 'info');
+      else setGroupSettingsError(response.error);
     });
   };
 
   const leaveGroup = () => {
     if (!currentChat?.groupId) return;
-
     socket.emit('leaveGroup', { groupId: currentChat.groupId }, (response) => {
       if (response.success) {
         setShowGroupSettingsModal(false);
@@ -938,11 +977,30 @@ function App() {
     });
   };
 
+  const createGroup = () => {
+    if (!newGroupName.trim()) return;
+    if (selectedMembers.length === 0) return;
+    socket.emit('createGroup', { name: newGroupName.trim(), members: selectedMembers }, (response) => {
+      if (response.success) {
+        setNewGroupName('');
+        setSelectedMembers([]);
+        setShowGroupModal(false);
+        setCurrentTab('groups');
+        showToast('Group created', 'success');
+      }
+    });
+  };
+
+  const deleteGroup = (groupId) => {
+    socket.emit('deleteGroup', { groupId });
+    showToast('Group deleted', 'info');
+  };
+
   const getLastMessage = (chatId) => {
     const chatMessages = messages[chatId] || [];
     if (chatMessages.length === 0) return 'No messages yet';
     const lastMsg = chatMessages[chatMessages.length - 1];
-    if (lastMsg.image) return '📷 Image';
+    if (lastMsg.image) return 'Image';
     return lastMsg.text || 'No messages yet';
   };
 
@@ -959,9 +1017,8 @@ function App() {
     return contact?.avatar || null;
   };
 
-  // Emoji data with searchable keywords
+  // ============ EMOJI DATA ============
   const allEmojis = [
-    // Smileys
     { emoji: '😀', keywords: 'grin happy smile face' },
     { emoji: '😃', keywords: 'smile happy grin face open' },
     { emoji: '😄', keywords: 'laugh smile happy grin face' },
@@ -1011,7 +1068,6 @@ function App() {
     { emoji: '🥶', keywords: 'cold freezing ice' },
     { emoji: '🤯', keywords: 'mind blown exploding head' },
     { emoji: '🥴', keywords: 'woozy drunk dizzy' },
-    // Gestures
     { emoji: '👋', keywords: 'wave hello hi bye hand' },
     { emoji: '👍', keywords: 'thumbs up like good yes approve' },
     { emoji: '👎', keywords: 'thumbs down dislike bad no' },
@@ -1032,7 +1088,6 @@ function App() {
     { emoji: '💪', keywords: 'muscle strong arm flex' },
     { emoji: '✊', keywords: 'fist power solidarity' },
     { emoji: '👊', keywords: 'fist bump punch' },
-    // Hearts
     { emoji: '❤️', keywords: 'heart love red' },
     { emoji: '🧡', keywords: 'heart love orange' },
     { emoji: '💛', keywords: 'heart love yellow' },
@@ -1043,109 +1098,49 @@ function App() {
     { emoji: '🤍', keywords: 'heart love white' },
     { emoji: '💔', keywords: 'broken heart sad love' },
     { emoji: '💕', keywords: 'hearts two love' },
-    { emoji: '💖', keywords: 'sparkling heart love' },
-    { emoji: '💗', keywords: 'growing heart love' },
-    { emoji: '💘', keywords: 'cupid heart arrow love' },
-    { emoji: '💝', keywords: 'gift heart ribbon love' },
-    // Animals
     { emoji: '🐶', keywords: 'dog puppy pet animal' },
     { emoji: '🐱', keywords: 'cat kitty pet animal' },
     { emoji: '🐭', keywords: 'mouse rat animal' },
-    { emoji: '🐹', keywords: 'hamster pet animal' },
     { emoji: '🐰', keywords: 'rabbit bunny animal' },
     { emoji: '🦊', keywords: 'fox animal' },
     { emoji: '🐻', keywords: 'bear animal' },
     { emoji: '🐼', keywords: 'panda bear animal' },
-    { emoji: '🐨', keywords: 'koala animal' },
     { emoji: '🐯', keywords: 'tiger animal' },
     { emoji: '🦁', keywords: 'lion animal king' },
-    { emoji: '🐮', keywords: 'cow animal' },
-    { emoji: '🐷', keywords: 'pig animal' },
     { emoji: '🐸', keywords: 'frog animal' },
     { emoji: '🐵', keywords: 'monkey animal' },
-    { emoji: '🐔', keywords: 'chicken animal bird' },
-    { emoji: '🐧', keywords: 'penguin animal bird' },
     { emoji: '🦄', keywords: 'unicorn magic animal' },
-    { emoji: '🐝', keywords: 'bee honey insect' },
-    { emoji: '🦋', keywords: 'butterfly insect' },
-    { emoji: '🐢', keywords: 'turtle animal slow' },
-    { emoji: '🐍', keywords: 'snake animal' },
-    { emoji: '🐙', keywords: 'octopus animal sea' },
-    { emoji: '🦈', keywords: 'shark animal sea fish' },
-    { emoji: '🐬', keywords: 'dolphin animal sea' },
-    { emoji: '🐳', keywords: 'whale animal sea' },
-    // Food
-    { emoji: '🍎', keywords: 'apple fruit red food' },
-    { emoji: '🍌', keywords: 'banana fruit yellow food' },
-    { emoji: '🍇', keywords: 'grapes fruit food' },
-    { emoji: '🍓', keywords: 'strawberry fruit food' },
     { emoji: '🍕', keywords: 'pizza food italian' },
     { emoji: '🍔', keywords: 'burger hamburger food' },
     { emoji: '🍟', keywords: 'fries french food' },
-    { emoji: '🌭', keywords: 'hotdog food' },
-    { emoji: '🍿', keywords: 'popcorn movie snack food' },
-    { emoji: '🍩', keywords: 'donut doughnut food sweet' },
-    { emoji: '🍪', keywords: 'cookie food sweet' },
     { emoji: '🎂', keywords: 'cake birthday food sweet' },
-    { emoji: '🍰', keywords: 'cake slice food sweet' },
-    { emoji: '🍫', keywords: 'chocolate food sweet candy' },
-    { emoji: '🍬', keywords: 'candy food sweet' },
-    { emoji: '🍭', keywords: 'lollipop candy food sweet' },
     { emoji: '☕', keywords: 'coffee drink hot' },
-    { emoji: '🍵', keywords: 'tea drink hot' },
-    { emoji: '🍺', keywords: 'beer drink alcohol' },
-    { emoji: '🍷', keywords: 'wine drink alcohol' },
-    { emoji: '🍹', keywords: 'cocktail drink tropical' },
-    // Activities & Objects
-    { emoji: '⚽', keywords: 'soccer football ball sport' },
-    { emoji: '🏀', keywords: 'basketball ball sport' },
-    { emoji: '🏈', keywords: 'football american sport' },
-    { emoji: '⚾', keywords: 'baseball ball sport' },
-    { emoji: '🎾', keywords: 'tennis ball sport' },
     { emoji: '🎮', keywords: 'game video controller gaming' },
-    { emoji: '🎬', keywords: 'movie film clapper' },
     { emoji: '🎵', keywords: 'music note song' },
-    { emoji: '🎶', keywords: 'music notes song' },
     { emoji: '🎤', keywords: 'microphone sing karaoke' },
-    { emoji: '🎧', keywords: 'headphones music listen' },
-    { emoji: '🎸', keywords: 'guitar music instrument' },
-    { emoji: '🎹', keywords: 'piano keyboard music' },
-    { emoji: '🎨', keywords: 'art paint palette' },
     { emoji: '📷', keywords: 'camera photo picture' },
     { emoji: '💻', keywords: 'laptop computer work' },
     { emoji: '📱', keywords: 'phone mobile cell' },
-    { emoji: '⌚', keywords: 'watch time' },
-    { emoji: '💡', keywords: 'idea light bulb' },
     { emoji: '🔥', keywords: 'fire hot lit flame' },
     { emoji: '⭐', keywords: 'star favorite' },
-    { emoji: '🌟', keywords: 'star glowing sparkle' },
     { emoji: '✨', keywords: 'sparkles magic stars' },
     { emoji: '💯', keywords: 'hundred perfect score' },
     { emoji: '💀', keywords: 'skull dead death' },
     { emoji: '👻', keywords: 'ghost spooky halloween' },
-    { emoji: '👽', keywords: 'alien ufo space' },
     { emoji: '🤖', keywords: 'robot machine' },
     { emoji: '💩', keywords: 'poop poo crap' },
     { emoji: '🎉', keywords: 'party tada celebration confetti' },
-    { emoji: '🎊', keywords: 'confetti party celebration' },
     { emoji: '🎁', keywords: 'gift present box' },
     { emoji: '🏆', keywords: 'trophy winner champion' },
-    { emoji: '🥇', keywords: 'gold medal first winner' },
     { emoji: '💰', keywords: 'money bag cash' },
-    { emoji: '💵', keywords: 'money dollar cash' },
     { emoji: '💎', keywords: 'diamond gem jewel' },
     { emoji: '🚀', keywords: 'rocket space launch' },
-    { emoji: '✈️', keywords: 'airplane plane travel flight' },
-    { emoji: '🚗', keywords: 'car vehicle drive' },
-    { emoji: '🏠', keywords: 'house home' },
     { emoji: '🌈', keywords: 'rainbow colors' },
     { emoji: '☀️', keywords: 'sun sunny weather' },
     { emoji: '🌙', keywords: 'moon night' },
     { emoji: '⚡', keywords: 'lightning bolt electric' },
     { emoji: '❄️', keywords: 'snowflake cold winter' },
     { emoji: '🌸', keywords: 'flower cherry blossom pink' },
-    { emoji: '🌹', keywords: 'rose flower red' },
-    { emoji: '🌻', keywords: 'sunflower flower yellow' },
     { emoji: '✅', keywords: 'check yes done complete' },
     { emoji: '❌', keywords: 'x no wrong cross' },
     { emoji: '❓', keywords: 'question mark' },
@@ -1153,54 +1148,33 @@ function App() {
     { emoji: '💤', keywords: 'sleep zzz tired' }
   ];
 
-  // Get filtered emojis based on search
   const getFilteredEmojis = () => {
-    if (!emojiSearch.trim()) {
-      return allEmojis;
-    }
+    if (!emojiSearch.trim()) return allEmojis;
     const search = emojiSearch.toLowerCase();
     return allEmojis.filter(e => e.keywords.includes(search));
   };
 
-  // Search GIFs using Tenor API
   const searchGifs = async (query) => {
-    if (!query.trim()) {
-      setGifResults([]);
-      return;
-    }
-
+    if (!query.trim()) { setGifResults([]); return; }
     setGifLoading(true);
     try {
-      // Using Tenor API with a public key for demo purposes
-      const response = await fetch(
-        `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ&client_key=simple_messaging_app&limit=20`
-      );
+      const response = await fetch(`https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ&client_key=simple_messaging_app&limit=20`);
       const data = await response.json();
       setGifResults(data.results || []);
-    } catch (error) {
-      console.error('Failed to fetch GIFs:', error);
-      setGifResults([]);
-    }
+    } catch (error) { setGifResults([]); }
     setGifLoading(false);
   };
 
-  // Load trending GIFs
   const loadTrendingGifs = async () => {
     setGifLoading(true);
     try {
-      const response = await fetch(
-        `https://tenor.googleapis.com/v2/featured?key=AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ&client_key=simple_messaging_app&limit=20`
-      );
+      const response = await fetch(`https://tenor.googleapis.com/v2/featured?key=AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ&client_key=simple_messaging_app&limit=20`);
       const data = await response.json();
       setGifResults(data.results || []);
-    } catch (error) {
-      console.error('Failed to fetch trending GIFs:', error);
-      setGifResults([]);
-    }
+    } catch (error) { setGifResults([]); }
     setGifLoading(false);
   };
 
-  // Send GIF as message
   const sendGif = (gifUrl) => {
     if (!currentChat) return;
     sendMessage('', gifUrl);
@@ -1209,13 +1183,12 @@ function App() {
     setGifResults([]);
   };
 
-  // Insert emoji into message
   const insertEmoji = (emoji) => {
     setMessageInput(prev => prev + emoji);
     setShowEmojiPicker(false);
   };
 
-  // Game definitions
+  // ============ GAMES ============
   const gameTypes = [
     { id: 'tictactoe', name: 'Tic Tac Toe', icon: '⭕', players: 2 },
     { id: 'connect4', name: 'Connect 4', icon: '🔴', players: 2 },
@@ -1225,14 +1198,8 @@ function App() {
     { id: 'chopsticks', name: 'Chopsticks', icon: '🖐️', players: 2 }
   ];
 
-  // Send game invite
   const sendGameInvite = (gameType) => {
-    if (!currentChat) {
-      console.log('sendGameInvite: No current chat');
-      return;
-    }
-
-    // Don't allow 2-player games in groups
+    if (!currentChat) return;
     if (currentChat.type === 'group') {
       showToast('Games are only available in direct messages', 'error');
       setShowGamePicker(false);
@@ -1241,11 +1208,7 @@ function App() {
 
     const gameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const game = gameTypes.find(g => g.id === gameType);
-
-    if (!game) {
-      console.log('sendGameInvite: Game type not found', gameType);
-      return;
-    }
+    if (!game) return;
 
     const gameMessage = {
       text: '',
@@ -1264,13 +1227,10 @@ function App() {
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    console.log('sendGameInvite: Sending game message', gameMessage);
-
-    const recipient = currentChat.name;
     socket.emit('sendMessage', {
       chatId: currentChat.id,
       chatType: currentChat.type,
-      recipient,
+      recipient: currentChat.name,
       message: gameMessage
     });
 
@@ -1278,10 +1238,8 @@ function App() {
     showToast(`Starting ${game.name}...`, 'info');
   };
 
-  // Start a rematch with the same game type and players
   const startRematch = () => {
     if (!activeGame || !currentChat) return;
-
     const gameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const game = gameTypes.find(g => g.id === activeGame.type);
 
@@ -1314,44 +1272,22 @@ function App() {
     showToast('Rematch started!', 'success');
   };
 
-  // Initialize game state based on type
   const initializeGameState = (gameType) => {
     switch (gameType) {
-      case 'tictactoe':
-        return { board: Array(9).fill(null) };
-      case 'connect4':
-        return { board: Array(42).fill(null) }; // 7 columns x 6 rows
-      case 'rps':
-        return { choices: {} };
-      case 'coinflip':
-        return { calls: {}, result: null }; // Each player calls heads or tails
-      case 'numberguess':
-        // Randomly select who picks the number (0 or 1 index into players array)
-        return { picker: Math.random() < 0.5 ? 0 : 1, secretNumber: null, guesses: [], hint: null };
-      case 'chopsticks':
-        // Each player has left and right hands, starting with 1 finger each
-        return {
-          hands: {
-            0: { left: 1, right: 1 }, // Player 1's hands
-            1: { left: 1, right: 1 }  // Player 2's hands
-          },
-          selectedHand: null // For UI: which of your hands is selected for tapping
-        };
-      default:
-        return {};
+      case 'tictactoe': return { board: Array(9).fill(null) };
+      case 'connect4': return { board: Array(42).fill(null) };
+      case 'rps': return { choices: {} };
+      case 'coinflip': return { calls: {}, result: null };
+      case 'numberguess': return { picker: Math.random() < 0.5 ? 0 : 1, secretNumber: null, guesses: [], hint: null };
+      case 'chopsticks': return { hands: { 0: { left: 1, right: 1 }, 1: { left: 1, right: 1 } }, selectedHand: null };
+      default: return {};
     }
   };
 
-  // Open a game
-  const openGame = (game, chatId) => {
-    setActiveGame({ ...game, chatId });
-  };
+  const openGame = (game, chatId) => setActiveGame({ ...game, chatId });
 
-  // Make a game move
   const makeGameMove = (move) => {
     if (!activeGame) return;
-
-    // Deep clone the game state to avoid mutation issues
     const updatedGame = JSON.parse(JSON.stringify(activeGame));
     const isPlayer1 = activeGame.players[0].toLowerCase() === userName.toLowerCase();
     const playerSymbol = isPlayer1 ? 'X' : 'O';
@@ -1359,106 +1295,52 @@ function App() {
     switch (activeGame.type) {
       case 'tictactoe': {
         if (updatedGame.state.board[move] !== null) return;
-        if (updatedGame.currentTurn.toLowerCase() !== userName.toLowerCase()) {
-          showToast("It's not your turn!", 'error');
-          return;
-        }
-
+        if (updatedGame.currentTurn.toLowerCase() !== userName.toLowerCase()) { showToast("It's not your turn!", 'error'); return; }
         updatedGame.state.board[move] = playerSymbol;
         const winner = checkTicTacToeWinner(updatedGame.state.board);
-        if (winner) {
-          updatedGame.status = 'finished';
-          updatedGame.winner = winner === 'draw' ? 'draw' : userName;
-        } else {
-          updatedGame.currentTurn = activeGame.players.find(
-            p => p.toLowerCase() !== userName.toLowerCase()
-          );
-        }
+        if (winner) { updatedGame.status = 'finished'; updatedGame.winner = winner === 'draw' ? 'draw' : userName; }
+        else { updatedGame.currentTurn = activeGame.players.find(p => p.toLowerCase() !== userName.toLowerCase()); }
         break;
       }
       case 'connect4': {
-        if (updatedGame.currentTurn.toLowerCase() !== userName.toLowerCase()) {
-          showToast("It's not your turn!", 'error');
-          return;
-        }
-
-        // Find lowest empty row in selected column
+        if (updatedGame.currentTurn.toLowerCase() !== userName.toLowerCase()) { showToast("It's not your turn!", 'error'); return; }
         const col = move;
         let row = -1;
-        for (let r = 5; r >= 0; r--) {
-          if (updatedGame.state.board[r * 7 + col] === null) {
-            row = r;
-            break;
-          }
-        }
-        if (row === -1) return; // Column full
-
+        for (let r = 5; r >= 0; r--) { if (updatedGame.state.board[r * 7 + col] === null) { row = r; break; } }
+        if (row === -1) return;
         updatedGame.state.board[row * 7 + col] = playerSymbol;
         const winner = checkConnect4Winner(updatedGame.state.board);
-        if (winner) {
-          updatedGame.status = 'finished';
-          updatedGame.winner = winner === 'draw' ? 'draw' : userName;
-        } else {
-          updatedGame.currentTurn = activeGame.players.find(
-            p => p.toLowerCase() !== userName.toLowerCase()
-          );
-        }
+        if (winner) { updatedGame.status = 'finished'; updatedGame.winner = winner === 'draw' ? 'draw' : userName; }
+        else { updatedGame.currentTurn = activeGame.players.find(p => p.toLowerCase() !== userName.toLowerCase()); }
         break;
       }
       case 'rps': {
-        if (updatedGame.state.choices[userName.toLowerCase()]) {
-          showToast("You already made your choice!", 'error');
-          return;
-        }
-
+        if (updatedGame.state.choices[userName.toLowerCase()]) { showToast("You already made your choice!", 'error'); return; }
         updatedGame.state.choices[userName.toLowerCase()] = move;
-
-        // Check if both players have chosen
         const player1 = activeGame.players[0].toLowerCase();
         const player2 = activeGame.players[1].toLowerCase();
         if (updatedGame.state.choices[player1] && updatedGame.state.choices[player2]) {
-          const result = getRPSWinner(
-            updatedGame.state.choices[player1],
-            updatedGame.state.choices[player2]
-          );
+          const result = getRPSWinner(updatedGame.state.choices[player1], updatedGame.state.choices[player2]);
           updatedGame.status = 'finished';
-          if (result === 0) {
-            updatedGame.winner = 'draw';
-          } else {
-            updatedGame.winner = result === 1 ? activeGame.players[0] : activeGame.players[1];
-          }
+          if (result === 0) updatedGame.winner = 'draw';
+          else updatedGame.winner = result === 1 ? activeGame.players[0] : activeGame.players[1];
         }
         break;
       }
       case 'coinflip': {
-        if (updatedGame.state.calls[userName.toLowerCase()]) {
-          showToast("You already made your call!", 'error');
-          return;
-        }
-
-        updatedGame.state.calls[userName.toLowerCase()] = move; // 'heads' or 'tails'
-
-        // Check if both players have called
+        if (updatedGame.state.calls[userName.toLowerCase()]) { showToast("You already made your call!", 'error'); return; }
+        updatedGame.state.calls[userName.toLowerCase()] = move;
         const player1 = activeGame.players[0].toLowerCase();
         const player2 = activeGame.players[1].toLowerCase();
         if (updatedGame.state.calls[player1] && updatedGame.state.calls[player2]) {
-          // Flip the coin
           const coinResult = Math.random() < 0.5 ? 'heads' : 'tails';
           updatedGame.state.result = coinResult;
           updatedGame.status = 'finished';
-
-          // Player 1 always makes the "official" call, whoever matches wins
-          const player1Call = updatedGame.state.calls[player1];
-          const player2Call = updatedGame.state.calls[player2];
-
-          if (player1Call === coinResult && player2Call !== coinResult) {
-            updatedGame.winner = activeGame.players[0];
-          } else if (player2Call === coinResult && player1Call !== coinResult) {
-            updatedGame.winner = activeGame.players[1];
-          } else {
-            // Both correct or both wrong = draw
-            updatedGame.winner = 'draw';
-          }
+          const p1Call = updatedGame.state.calls[player1];
+          const p2Call = updatedGame.state.calls[player2];
+          if (p1Call === coinResult && p2Call !== coinResult) updatedGame.winner = activeGame.players[0];
+          else if (p2Call === coinResult && p1Call !== coinResult) updatedGame.winner = activeGame.players[1];
+          else updatedGame.winner = 'draw';
         }
         break;
       }
@@ -1466,288 +1348,375 @@ function App() {
         const pickerIndex = activeGame.state.picker;
         const guesserIndex = pickerIndex === 0 ? 1 : 0;
         const isPicker = activeGame.players[pickerIndex].toLowerCase() === userName.toLowerCase();
-
         if (isPicker) {
-          // Picker is setting the secret number
-          if (updatedGame.state.secretNumber !== null) {
-            showToast("You already picked your number!", 'error');
-            return;
-          }
+          if (updatedGame.state.secretNumber !== null) { showToast("You already picked your number!", 'error'); return; }
           updatedGame.state.secretNumber = move;
         } else {
-          // Guesser is making a guess
-          if (updatedGame.state.secretNumber === null) {
-            showToast("Waiting for the other player to pick a number!", 'error');
-            return;
-          }
-
+          if (updatedGame.state.secretNumber === null) { showToast("Waiting for the other player to pick a number!", 'error'); return; }
           updatedGame.state.guesses.push(move);
-
           if (move === updatedGame.state.secretNumber) {
-            // Correct guess - guesser wins!
             updatedGame.status = 'finished';
             updatedGame.winner = activeGame.players[guesserIndex];
             updatedGame.state.hint = 'correct';
-          } else if (move < updatedGame.state.secretNumber) {
-            updatedGame.state.hint = 'higher';
-          } else {
-            updatedGame.state.hint = 'lower';
-          }
+          } else if (move < updatedGame.state.secretNumber) { updatedGame.state.hint = 'higher'; }
+          else { updatedGame.state.hint = 'lower'; }
         }
         break;
       }
       case 'chopsticks': {
-        // Check if it's player's turn
-        if (updatedGame.currentTurn.toLowerCase() !== userName.toLowerCase()) {
-          showToast("It's not your turn!", 'error');
-          return;
-        }
-
+        if (updatedGame.currentTurn.toLowerCase() !== userName.toLowerCase()) { showToast("It's not your turn!", 'error'); return; }
         const myIndex = activeGame.players[0].toLowerCase() === userName.toLowerCase() ? 0 : 1;
         const opponentIndex = myIndex === 0 ? 1 : 0;
         const myHands = updatedGame.state.hands[myIndex];
         const opponentHands = updatedGame.state.hands[opponentIndex];
 
         if (move.type === 'tap') {
-          // Tap opponent's hand with my hand
           const myFingers = myHands[move.myHand];
           const theirFingers = opponentHands[move.theirHand];
-
-          if (myFingers === 0) {
-            showToast("You can't tap with a dead hand!", 'error');
-            return;
-          }
-          if (theirFingers === 0) {
-            showToast("You can't tap a dead hand!", 'error');
-            return;
-          }
-
-          // Add fingers
+          if (myFingers === 0) { showToast("You can't tap with a dead hand!", 'error'); return; }
+          if (theirFingers === 0) { showToast("You can't tap a dead hand!", 'error'); return; }
           let newFingers = theirFingers + myFingers;
-          if (newFingers >= 5) {
-            newFingers = 0; // Hand is out
-          }
+          if (newFingers >= 5) newFingers = 0;
           updatedGame.state.hands[opponentIndex][move.theirHand] = newFingers;
-
         } else if (move.type === 'split') {
-          // Redistribute fingers between own hands
           const totalFingers = myHands.left + myHands.right;
-          const newLeft = move.left;
-          const newRight = move.right;
-
-          // Validate split
-          if (newLeft + newRight !== totalFingers) {
-            showToast("Invalid split - fingers must add up!", 'error');
-            return;
-          }
-          if (newLeft < 0 || newRight < 0 || newLeft > 4 || newRight > 4) {
-            showToast("Invalid split - keep fingers between 0-4!", 'error');
-            return;
-          }
-          if (newLeft === myHands.left && newRight === myHands.right) {
-            showToast("Split must change the hand configuration!", 'error');
-            return;
-          }
-
-          updatedGame.state.hands[myIndex].left = newLeft;
-          updatedGame.state.hands[myIndex].right = newRight;
+          if (move.left + move.right !== totalFingers) { showToast("Invalid split!", 'error'); return; }
+          if (move.left < 0 || move.right < 0 || move.left > 4 || move.right > 4) { showToast("Invalid split!", 'error'); return; }
+          if (move.left === myHands.left && move.right === myHands.right) { showToast("Split must change configuration!", 'error'); return; }
+          updatedGame.state.hands[myIndex].left = move.left;
+          updatedGame.state.hands[myIndex].right = move.right;
         }
 
-        // Check for winner - opponent loses if both hands are 0
         const oppHands = updatedGame.state.hands[opponentIndex];
         const myNewHands = updatedGame.state.hands[myIndex];
-
-        if (oppHands.left === 0 && oppHands.right === 0) {
-          updatedGame.status = 'finished';
-          updatedGame.winner = activeGame.players[myIndex];
-        } else if (myNewHands.left === 0 && myNewHands.right === 0) {
-          updatedGame.status = 'finished';
-          updatedGame.winner = activeGame.players[opponentIndex];
-        } else {
-          // Switch turns
-          updatedGame.currentTurn = activeGame.players.find(
-            p => p.toLowerCase() !== userName.toLowerCase()
-          );
-        }
-
-        // Clear selected hand
+        if (oppHands.left === 0 && oppHands.right === 0) { updatedGame.status = 'finished'; updatedGame.winner = activeGame.players[myIndex]; }
+        else if (myNewHands.left === 0 && myNewHands.right === 0) { updatedGame.status = 'finished'; updatedGame.winner = activeGame.players[opponentIndex]; }
+        else { updatedGame.currentTurn = activeGame.players.find(p => p.toLowerCase() !== userName.toLowerCase()); }
         updatedGame.state.selectedHand = null;
         break;
       }
     }
 
-    console.log('makeGameMove: Sending update', { gameId: activeGame.id, currentTurn: updatedGame.currentTurn });
-
-    // Send the updated game state
-    socket.emit('updateGame', {
-      chatId: activeGame.chatId,
-      gameId: activeGame.id,
-      game: updatedGame
-    });
-
+    socket.emit('updateGame', { chatId: activeGame.chatId, gameId: activeGame.id, game: updatedGame });
     setActiveGame(updatedGame);
   };
 
-  // Check Tic Tac Toe winner
   const checkTicTacToeWinner = (board) => {
-    const lines = [
-      [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
-      [0, 3, 6], [1, 4, 7], [2, 5, 8], // cols
-      [0, 4, 8], [2, 4, 6] // diagonals
-    ];
-    for (const [a, b, c] of lines) {
-      if (board[a] && board[a] === board[b] && board[a] === board[c]) {
-        return board[a];
-      }
-    }
+    const lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+    for (const [a,b,c] of lines) { if (board[a] && board[a] === board[b] && board[a] === board[c]) return board[a]; }
     if (board.every(cell => cell !== null)) return 'draw';
     return null;
   };
 
-  // Check Connect 4 winner
   const checkConnect4Winner = (board) => {
-    // Check horizontal
-    for (let r = 0; r < 6; r++) {
-      for (let c = 0; c < 4; c++) {
-        const idx = r * 7 + c;
-        if (board[idx] && board[idx] === board[idx+1] && board[idx] === board[idx+2] && board[idx] === board[idx+3]) {
-          return board[idx];
-        }
-      }
-    }
-    // Check vertical
-    for (let r = 0; r < 3; r++) {
-      for (let c = 0; c < 7; c++) {
-        const idx = r * 7 + c;
-        if (board[idx] && board[idx] === board[idx+7] && board[idx] === board[idx+14] && board[idx] === board[idx+21]) {
-          return board[idx];
-        }
-      }
-    }
-    // Check diagonal (down-right)
-    for (let r = 0; r < 3; r++) {
-      for (let c = 0; c < 4; c++) {
-        const idx = r * 7 + c;
-        if (board[idx] && board[idx] === board[idx+8] && board[idx] === board[idx+16] && board[idx] === board[idx+24]) {
-          return board[idx];
-        }
-      }
-    }
-    // Check diagonal (down-left)
-    for (let r = 0; r < 3; r++) {
-      for (let c = 3; c < 7; c++) {
-        const idx = r * 7 + c;
-        if (board[idx] && board[idx] === board[idx+6] && board[idx] === board[idx+12] && board[idx] === board[idx+18]) {
-          return board[idx];
-        }
-      }
-    }
+    for (let r = 0; r < 6; r++) { for (let c = 0; c < 4; c++) { const i = r*7+c; if (board[i] && board[i]===board[i+1] && board[i]===board[i+2] && board[i]===board[i+3]) return board[i]; } }
+    for (let r = 0; r < 3; r++) { for (let c = 0; c < 7; c++) { const i = r*7+c; if (board[i] && board[i]===board[i+7] && board[i]===board[i+14] && board[i]===board[i+21]) return board[i]; } }
+    for (let r = 0; r < 3; r++) { for (let c = 0; c < 4; c++) { const i = r*7+c; if (board[i] && board[i]===board[i+8] && board[i]===board[i+16] && board[i]===board[i+24]) return board[i]; } }
+    for (let r = 0; r < 3; r++) { for (let c = 3; c < 7; c++) { const i = r*7+c; if (board[i] && board[i]===board[i+6] && board[i]===board[i+12] && board[i]===board[i+18]) return board[i]; } }
     if (board.every(cell => cell !== null)) return 'draw';
     return null;
   };
 
-  // Get Rock Paper Scissors winner (1 = player1 wins, -1 = player2 wins, 0 = draw)
-  const getRPSWinner = (choice1, choice2) => {
-    if (choice1 === choice2) return 0;
-    if (
-      (choice1 === 'rock' && choice2 === 'scissors') ||
-      (choice1 === 'paper' && choice2 === 'rock') ||
-      (choice1 === 'scissors' && choice2 === 'paper')
-    ) {
-      return 1;
-    }
+  const getRPSWinner = (c1, c2) => {
+    if (c1 === c2) return 0;
+    if ((c1==='rock'&&c2==='scissors')||(c1==='paper'&&c2==='rock')||(c1==='scissors'&&c2==='paper')) return 1;
     return -1;
   };
 
-  // Parse text and convert URLs to clickable links
   const renderMessageText = (text) => {
     const urlRegex = /(https?:\/\/[^\s<]+[^\s<.,;:!?)\]"'])/g;
     const parts = text.split(urlRegex);
-
     return parts.map((part, index) => {
       if (urlRegex.test(part)) {
-        return (
-          <a
-            key={index}
-            href={part}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="message-link"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {part}
-          </a>
-        );
+        return (<a key={index} href={part} target="_blank" rel="noopener noreferrer" className="message-link" onClick={(e) => e.stopPropagation()}>{part}</a>);
       }
       return part;
     });
   };
 
-  // Auth Screen
+  // ============ RENDER: LOGIN SCREEN ============
   if (!isLoggedIn) {
-    return (
-      <div className="login-screen">
-        <div className="login-box">
-          <h1>Messages</h1>
-          <p>{authMode === 'login' ? 'Log in to your account' : 'Create a new account'}</p>
+    const isSupremeLogin = loginType === 'supreme';
 
-          <div className="auth-tabs">
+    return (
+      <div className={`login-screen ${isSupremeLogin ? 'supreme-login' : ''}`}>
+        <div className={`login-box ${isSupremeLogin ? 'supreme-box' : ''}`}>
+          {isSupremeLogin ? (
+            <>
+              <div className="supreme-logo">W</div>
+              <h1 className="supreme-title">Supreme Access</h1>
+              <p className="supreme-subtitle">Authorized personnel only</p>
+            </>
+          ) : (
+            <>
+              <h1>Messages</h1>
+              <p>
+                {loginStep === 'name' && 'Enter your name to get started'}
+                {loginStep === 'password' && `Welcome back, ${nameInput.trim()}`}
+                {loginStep === 'spaceCode' && `Hi ${nameInput.trim()}, enter your space code`}
+              </p>
+            </>
+          )}
+
+          {loginStep === 'name' && (
+            <input
+              type="text"
+              className="login-input"
+              value={nameInput}
+              onChange={(e) => { setNameInput(e.target.value); setAuthError(''); }}
+              onKeyDown={(e) => e.key === 'Enter' && handleCheckName()}
+              placeholder="Your name"
+              autoFocus
+            />
+          )}
+
+          {loginStep === 'password' && (
+            <>
+              <div className="login-name-display">{nameInput.trim()}</div>
+              <input
+                type="password"
+                className={`login-input ${isSupremeLogin ? 'supreme-input' : ''}`}
+                value={passwordInput}
+                onChange={(e) => { setPasswordInput(e.target.value); setAuthError(''); }}
+                onKeyDown={(e) => e.key === 'Enter' && handlePasswordLogin()}
+                placeholder="Password"
+                autoFocus
+              />
+            </>
+          )}
+
+          {loginStep === 'spaceCode' && (
+            <>
+              <div className="login-name-display">{nameInput.trim()}</div>
+              <input
+                type="text"
+                className="login-input space-code-input"
+                value={spaceCodeInput}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 5);
+                  setSpaceCodeInput(val);
+                  setAuthError('');
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && handleSpaceCodeLogin()}
+                placeholder="5-digit space code"
+                autoFocus
+                maxLength={5}
+              />
+            </>
+          )}
+
+          {authError && <div className="error-message">{authError}</div>}
+
+          <div className="login-actions">
+            {loginStep !== 'name' && (
+              <button className="login-back-btn" onClick={() => {
+                setLoginStep('name');
+                setLoginType(null);
+                setPasswordInput('');
+                setSpaceCodeInput('');
+                setAuthError('');
+              }}>
+                Back
+              </button>
+            )}
             <button
-              className={`auth-tab ${authMode === 'login' ? 'active' : ''}`}
-              onClick={() => { setAuthMode('login'); setAuthError(''); }}
+              className={`login-btn ${isSupremeLogin ? 'supreme-btn' : ''}`}
+              onClick={() => {
+                if (loginStep === 'name') handleCheckName();
+                else if (loginStep === 'password') handlePasswordLogin();
+                else if (loginStep === 'spaceCode') handleSpaceCodeLogin();
+              }}
+              disabled={isAuthenticating}
             >
-              Login
-            </button>
-            <button
-              className={`auth-tab ${authMode === 'register' ? 'active' : ''}`}
-              onClick={() => { setAuthMode('register'); setAuthError(''); }}
-            >
-              Register
+              {isAuthenticating ? 'Connecting...' : (
+                loginStep === 'name' ? 'Continue' :
+                loginStep === 'password' ? 'Login' :
+                'Join Space'
+              )}
             </button>
           </div>
 
-          <input
-            type="text"
-            className="login-input"
-            value={nameInput}
-            onChange={(e) => { setNameInput(e.target.value); setAuthError(''); }}
-            onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
-            placeholder="Username"
-            autoFocus
-          />
-          <input
-            type="password"
-            className="login-input"
-            value={passwordInput}
-            onChange={(e) => { setPasswordInput(e.target.value); setAuthError(''); }}
-            onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
-            placeholder="Password"
-          />
-          {authError && <div className="error-message">{authError}</div>}
-          <button className="login-btn" onClick={handleAuth}>
-            {authMode === 'login' ? 'Login' : 'Create Account'}
-          </button>
+          <div className={`connection-status ${isConnected ? 'connected' : 'disconnected'}`}>
+            {isConnected ? 'Connected to server' : 'Connecting to server...'}
+          </div>
         </div>
       </div>
     );
   }
 
+  // ============ RENDER: SUPREME DASHBOARD ============
+  if (userRole === 'supreme') {
+    return (
+      <div className="supreme-dashboard">
+        <div className="toast-container">
+          {toasts.map(toast => (<div key={toast.id} className={`toast ${toast.type}`}>{toast.message}</div>))}
+        </div>
+
+        <div className="supreme-header">
+          <div className="supreme-header-left">
+            <div className="supreme-logo-small">W</div>
+            <h2>Supreme Dashboard</h2>
+          </div>
+          <button className="logout-btn" onClick={handleLogout}>Logout</button>
+        </div>
+
+        <div className="supreme-content">
+          {/* Spaces List */}
+          <div className="supreme-sidebar">
+            <div className="supreme-sidebar-header">
+              <h3>Spaces ({allSpaces.length})</h3>
+              <button className="supreme-add-btn" onClick={() => { setShowCreateSpace(true); setSupremeError(''); }}>+ New Space</button>
+            </div>
+            <div className="supreme-space-list">
+              {allSpaces.map(space => (
+                <div
+                  key={space.code}
+                  className={`supreme-space-item ${selectedSpace === space.code ? 'active' : ''}`}
+                  onClick={() => viewSpaceDetails(space.code)}
+                >
+                  <div className="supreme-space-name">{space.name}</div>
+                  <div className="supreme-space-meta">
+                    Code: {space.code} | {space.memberCount} members | Admin: {space.adminName}
+                  </div>
+                </div>
+              ))}
+              {allSpaces.length === 0 && (
+                <div className="supreme-empty">No spaces yet. Create one to get started.</div>
+              )}
+            </div>
+          </div>
+
+          {/* Space Details */}
+          <div className="supreme-main">
+            {showCreateSpace ? (
+              <div className="supreme-create-form">
+                <h3>Create New Space</h3>
+                <input
+                  type="text"
+                  className="modal-input"
+                  value={createSpaceForm.name}
+                  onChange={(e) => setCreateSpaceForm(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Space name (e.g., School, Friends)"
+                />
+                <input
+                  type="text"
+                  className="modal-input"
+                  value={createSpaceForm.adminName}
+                  onChange={(e) => setCreateSpaceForm(prev => ({ ...prev, adminName: e.target.value }))}
+                  placeholder="Admin username"
+                />
+                <input
+                  type="password"
+                  className="modal-input"
+                  value={createSpaceForm.adminPassword}
+                  onChange={(e) => setCreateSpaceForm(prev => ({ ...prev, adminPassword: e.target.value }))}
+                  placeholder="Admin password"
+                />
+                {supremeError && <div className="error-message">{supremeError}</div>}
+                <div className="modal-buttons">
+                  <button className="modal-btn cancel" onClick={() => { setShowCreateSpace(false); setSupremeError(''); }}>Cancel</button>
+                  <button className="modal-btn confirm" onClick={handleCreateSpace}>Create Space</button>
+                </div>
+              </div>
+            ) : spaceDetails ? (
+              <div className="supreme-space-details">
+                <div className="supreme-detail-header">
+                  <div>
+                    <h3>{spaceDetails.name}</h3>
+                    <div className="supreme-detail-meta">Code: <strong>{spaceDetails.code}</strong> | Admin: <strong>{spaceDetails.adminName}</strong></div>
+                  </div>
+                  <button className="modal-btn danger" onClick={() => handleDeleteSpace(spaceDetails.code)}>Delete Space</button>
+                </div>
+
+                {supremeViewChat ? (
+                  <div className="supreme-chat-view">
+                    <button className="login-back-btn" onClick={() => { setSupremeViewChat(null); setSupremeChatMessages([]); }}>Back to Space</button>
+                    <h4>Chat: {supremeViewChat}</h4>
+                    <div className="supreme-messages">
+                      {supremeChatMessages.map((msg, idx) => (
+                        <div key={idx} className="supreme-message">
+                          <strong>{msg.sender}:</strong> {msg.image ? '[Image]' : ''} {msg.text}
+                          <span className="supreme-msg-time">{msg.time}</span>
+                        </div>
+                      ))}
+                      {supremeChatMessages.length === 0 && <div className="supreme-empty">No messages in this chat</div>}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="supreme-section">
+                      <h4>Members ({spaceDetails.members.length})</h4>
+                      <div className="supreme-member-list">
+                        {spaceDetails.members.map(member => (
+                          <div key={member.name} className="supreme-member">
+                            <span className={`supreme-status-dot ${member.online ? 'online' : ''}`}></span>
+                            <span>{member.name}</span>
+                            <span className="supreme-role-badge">{member.role}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {spaceDetails.banned.length > 0 && (
+                      <div className="supreme-section">
+                        <h4>Banned Users</h4>
+                        <div className="supreme-banned-list">
+                          {spaceDetails.banned.map(name => (
+                            <span key={name} className="supreme-banned-tag">{name}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="supreme-section">
+                      <h4>Group Chats</h4>
+                      <div className="supreme-chat-list">
+                        {spaceDetails.groups.map(group => (
+                          <div key={group.id} className="supreme-chat-item" onClick={() => viewChat(`group_${group.id}`)}>
+                            <span>{group.isMainGroup ? '(Main) ' : ''}{group.name}</span>
+                            <span className="supreme-chat-members">{group.members.length} members</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="supreme-section">
+                      <h4>Direct Messages</h4>
+                      <div className="supreme-chat-list">
+                        {spaceDetails.dmChats.map(dm => (
+                          <div key={dm.chatId} className="supreme-chat-item" onClick={() => viewChat(dm.chatId)}>
+                            <span>{dm.user1} & {dm.user2}</span>
+                            <span className="supreme-chat-members">{dm.messageCount} messages</span>
+                          </div>
+                        ))}
+                        {spaceDetails.dmChats.length === 0 && <div className="supreme-empty">No DMs yet</div>}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="supreme-welcome">
+                <h3>Select a space to view details</h3>
+                <p>Or create a new space to get started</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============ RENDER: MAIN APP (regular users and admins) ============
   const currentGroup = currentChat?.type === 'group' ? groups.find(g => g.id === currentChat.groupId) : null;
   const isGroupManager = currentGroup?.creator?.toLowerCase() === userName.toLowerCase();
 
-  // Main App
   return (
     <div className="container">
-      {/* Toast Container */}
       <div className="toast-container">
-        {toasts.map(toast => (
-          <div key={toast.id} className={`toast ${toast.type}`}>
-            {toast.message}
-          </div>
-        ))}
+        {toasts.map(toast => (<div key={toast.id} className={`toast ${toast.type}`}>{toast.message}</div>))}
       </div>
 
-      {/* Hidden canvas for cropping */}
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       {/* Sidebar */}
@@ -1757,9 +1726,22 @@ function App() {
             <div className="avatar" style={{ width: 35, height: 35, fontSize: '1rem' }}>
               {userAvatar ? <img src={userAvatar} alt={userName} /> : userName.charAt(0).toUpperCase()}
             </div>
-            <span className="user-name">{userName}</span>
+            <div className="user-header-info">
+              <span className="user-name">{userName}</span>
+              {spaceName && <span className="space-name-tag">{spaceName}</span>}
+            </div>
           </div>
           <div className="header-buttons">
+            {userRole === 'admin' && (
+              <button className="settings-btn admin-btn" onClick={() => {
+                socket.emit('getSpaceInfo', null, (res) => {
+                  if (res.success) setSpaceInfo(res.spaceInfo);
+                });
+                setShowSpaceSettings(true);
+              }} title="Space Settings">
+                🛡️
+              </button>
+            )}
             <button className="settings-btn" onClick={openSettingsModal} title="Settings">
               ⚙️
             </button>
@@ -1767,39 +1749,14 @@ function App() {
           </div>
         </div>
         <div className="header-buttons" style={{ padding: '10px 15px', background: 'var(--bg-light)' }}>
-          <button className="header-btn" style={{ background: 'var(--primary)', borderRadius: '5px' }} onClick={() => { setShowContactModal(true); setContactError(''); setNewContactName(''); }}>+ Contact</button>
           <button className="header-btn" style={{ background: 'var(--primary)', borderRadius: '5px' }} onClick={() => {
             if (contacts.length === 0) {
-              showToast('Add contacts first!', 'info');
+              showToast('No other members in your space yet!', 'info');
               return;
             }
             setShowGroupModal(true);
           }}>+ Group</button>
         </div>
-
-        {/* Pending Invites */}
-        {pendingInvites.length > 0 && (
-          <div className="invites-section">
-            <div className="invites-header">
-              <span>Invites</span>
-              <span className="invites-badge">{pendingInvites.length}</span>
-            </div>
-            {pendingInvites.map(invite => (
-              <div key={invite.from} className="invite-item">
-                <div className="avatar" style={{ width: 35, height: 35, fontSize: '0.9rem' }}>
-                  {invite.avatar ? <img src={invite.avatar} alt={invite.from} /> : invite.from.charAt(0).toUpperCase()}
-                </div>
-                <div className="invite-info">
-                  <div className="invite-name">{invite.from}</div>
-                </div>
-                <div className="invite-actions">
-                  <button className="invite-btn accept" onClick={() => acceptInvite(invite.from)}>Accept</button>
-                  <button className="invite-btn decline" onClick={() => declineInvite(invite.from)}>Decline</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
 
         <div className="tabs">
           <button className={`tab ${currentTab === 'contacts' ? 'active' : ''}`} onClick={() => setCurrentTab('contacts')}>
@@ -1820,7 +1777,7 @@ function App() {
         <div className="contact-list">
           {currentTab === 'contacts' ? (
             contacts.length === 0 ? (
-              <div className="empty-list">No contacts yet. Add someone by their username!</div>
+              <div className="empty-list">No other members in your space yet. Share the space code to invite people!</div>
             ) : (
               contacts.map(contact => {
                 const contactChatId = getChatId(contact.name);
@@ -1836,7 +1793,6 @@ function App() {
                       <div className="last-message">{getLastMessage(contactChatId)}</div>
                     </div>
                     {unreadCount > 0 && <span className="unread-badge">{unreadCount}</span>}
-                    <button className="delete-btn" onClick={(e) => { e.stopPropagation(); confirmRemoveContact(contact.name); }}>X</button>
                   </div>
                 );
               })
@@ -1854,11 +1810,14 @@ function App() {
                       {group.avatar ? <img src={group.avatar} alt={group.name} /> : group.name.charAt(0).toUpperCase()}
                     </div>
                     <div className="contact-info">
-                      <div className="contact-name">{group.name}</div>
+                      <div className="contact-name">
+                        {group.isMainGroup && <span className="main-group-badge">Main</span>}
+                        {group.name}
+                      </div>
                       <div className="last-message">{getLastMessage(groupChatId)}</div>
                     </div>
                     {unreadCount > 0 && <span className="unread-badge">{unreadCount}</span>}
-                    {group.creator.toLowerCase() === userName.toLowerCase() && (
+                    {!group.isMainGroup && group.creator.toLowerCase() === userName.toLowerCase() && (
                       <button className="delete-btn" onClick={(e) => { e.stopPropagation(); deleteGroup(group.id); }}>X</button>
                     )}
                   </div>
@@ -1875,13 +1834,12 @@ function App() {
           <div className="no-chat">
             <h3>Welcome, {userName}!</h3>
             <p>Select a contact or group to start chatting</p>
+            {spaceName && <p className="space-info-text">Space: {spaceName}</p>}
           </div>
         ) : (
           <>
             <div className="chat-header">
-              <button className="mobile-back-btn" onClick={handleMobileBack}>
-                ←
-              </button>
+              <button className="mobile-back-btn" onClick={handleMobileBack}>←</button>
               <div className={`avatar ${currentChat.type === 'group' ? 'group-avatar' : ''}`}>
                 {currentChat.avatar ? <img src={currentChat.avatar} alt={currentChat.name} /> : currentChat.name?.charAt(0).toUpperCase()}
                 {currentChat.type === 'contact' && (
@@ -1919,12 +1877,7 @@ function App() {
                         <div className="message-sender">{msg.sender}</div>
                       )}
                       {msg.image && (
-                        <img
-                          src={msg.image}
-                          alt="Shared"
-                          className="message-image"
-                          onClick={() => window.open(msg.image, '_blank')}
-                        />
+                        <img src={msg.image} alt="Shared" className="message-image" onClick={() => window.open(msg.image, '_blank')} />
                       )}
                       {msg.game && (
                         <div className={`game-invite ${msg.game.status}`}>
@@ -1933,16 +1886,11 @@ function App() {
                             <div className="game-invite-name">{msg.game.name}</div>
                             <div className="game-invite-status">
                               {msg.game.status === 'finished'
-                                ? msg.game.winner === 'draw'
-                                  ? "It's a draw!"
-                                  : `${msg.game.winner} wins!`
+                                ? msg.game.winner === 'draw' ? "It's a draw!" : `${msg.game.winner} wins!`
                                 : `${msg.game.currentTurn}'s turn`}
                             </div>
                           </div>
-                          <button
-                            className="game-invite-btn"
-                            onClick={() => openGame(msg.game, currentChat.id)}
-                          >
+                          <button className="game-invite-btn" onClick={() => openGame(msg.game, currentChat.id)}>
                             {msg.game.status === 'active' ? `Start ${msg.game.name}` : 'View Result'}
                           </button>
                         </div>
@@ -1957,11 +1905,7 @@ function App() {
             </div>
             {getTypingText(currentChat.id) && (
               <div className="typing-indicator">
-                <div className="typing-dots">
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                </div>
+                <div className="typing-dots"><span></span><span></span><span></span></div>
                 {getTypingText(currentChat.id)}
               </div>
             )}
@@ -1969,45 +1913,21 @@ function App() {
               {isUploading && (
                 <div className="upload-progress-container">
                   <div className="upload-progress-bar">
-                    <div
-                      className="upload-progress-fill"
-                      style={{ width: `${uploadProgress}%` }}
-                    />
+                    <div className="upload-progress-fill" style={{ width: `${uploadProgress}%` }} />
                   </div>
                   <span className="upload-progress-text">Uploading... {uploadProgress}%</span>
                 </div>
               )}
               <div className="chat-input-row">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleImageSelect}
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                />
-                <button
-                  className="input-btn"
-                  onClick={() => fileInputRef.current?.click()}
-                  title="Send image"
-                  disabled={isUploading}
-                >
+                <input type="file" ref={fileInputRef} onChange={handleImageSelect} accept="image/*" style={{ display: 'none' }} />
+                <button className="input-btn" onClick={() => fileInputRef.current?.click()} title="Send image" disabled={isUploading}>
                   <img src={userTheme === 'dark' ? cameraIconDark : cameraIcon} alt="Camera" className="input-icon" />
                 </button>
-                <button
-                  className="input-btn"
-                  onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowGifPicker(false); setShowGamePicker(false); }}
-                  title="Emoji"
-                  disabled={isUploading}
-                >
+                <button className="input-btn" onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowGifPicker(false); setShowGamePicker(false); }} title="Emoji" disabled={isUploading}>
                   <img src={userTheme === 'dark' ? emojiIconDark : emojiIcon} alt="Emoji" className="input-icon" />
                 </button>
                 <div className="picker-btn-wrapper">
-                  <button
-                    className="input-btn"
-                    onClick={() => { setShowGifPicker(!showGifPicker); setShowEmojiPicker(false); setShowGamePicker(false); if (!showGifPicker) loadTrendingGifs(); }}
-                    title="GIF"
-                    disabled={isUploading}
-                  >
+                  <button className="input-btn" onClick={() => { setShowGifPicker(!showGifPicker); setShowEmojiPicker(false); setShowGamePicker(false); if (!showGifPicker) loadTrendingGifs(); }} title="GIF" disabled={isUploading}>
                     <img src={userTheme === 'dark' ? gifIconDark : gifIcon} alt="GIF" className="input-icon" />
                   </button>
                   {showGifPicker && (
@@ -2017,29 +1937,13 @@ function App() {
                         <button className="picker-close" onClick={() => setShowGifPicker(false)}>×</button>
                       </div>
                       <div className="gif-search">
-                        <input
-                          type="text"
-                          value={gifSearch}
-                          onChange={(e) => setGifSearch(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && searchGifs(gifSearch)}
-                          placeholder="Search GIFs..."
-                        />
+                        <input type="text" value={gifSearch} onChange={(e) => setGifSearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchGifs(gifSearch)} placeholder="Search GIFs..." />
                         <button onClick={() => searchGifs(gifSearch)}>Search</button>
                       </div>
                       <div className="gif-grid">
-                        {gifLoading ? (
-                          <div className="gif-loading">Loading...</div>
-                        ) : gifResults.length === 0 ? (
-                          <div className="gif-empty">No GIFs found</div>
-                        ) : (
+                        {gifLoading ? (<div className="gif-loading">Loading...</div>) : gifResults.length === 0 ? (<div className="gif-empty">No GIFs found</div>) : (
                           gifResults.map((gif) => (
-                            <img
-                              key={gif.id}
-                              src={gif.media_formats?.tinygif?.url || gif.media_formats?.gif?.url}
-                              alt={gif.content_description}
-                              className="gif-item"
-                              onClick={() => sendGif(gif.media_formats?.gif?.url)}
-                            />
+                            <img key={gif.id} src={gif.media_formats?.tinygif?.url || gif.media_formats?.gif?.url} alt={gif.content_description} className="gif-item" onClick={() => sendGif(gif.media_formats?.gif?.url)} />
                           ))
                         )}
                       </div>
@@ -2048,12 +1952,7 @@ function App() {
                   )}
                 </div>
                 <div className="picker-btn-wrapper">
-                  <button
-                    className="input-btn"
-                    onClick={() => { setShowGamePicker(!showGamePicker); setShowEmojiPicker(false); setShowGifPicker(false); }}
-                    title="Games"
-                    disabled={isUploading || currentChat?.type === 'group'}
-                  >
+                  <button className="input-btn" onClick={() => { setShowGamePicker(!showGamePicker); setShowEmojiPicker(false); setShowGifPicker(false); }} title="Games" disabled={isUploading || currentChat?.type === 'group'}>
                     <img src={userTheme === 'dark' ? gamesIconDark : gamesIcon} alt="Games" className="input-icon" />
                   </button>
                   {showGamePicker && (
@@ -2064,11 +1963,7 @@ function App() {
                       </div>
                       <div className="game-list">
                         {gameTypes.map(game => (
-                          <div
-                            key={game.id}
-                            className="game-option"
-                            onClick={() => sendGameInvite(game.id)}
-                          >
+                          <div key={game.id} className="game-option" onClick={() => sendGameInvite(game.id)}>
                             <span className="game-option-icon">{game.icon}</span>
                             <span className="game-option-name">{game.name}</span>
                           </div>
@@ -2077,26 +1972,10 @@ function App() {
                     </div>
                   )}
                 </div>
-              <input
-                type="text"
-                className="chat-input"
-                value={messageInput}
-                onChange={(e) => { setMessageInput(e.target.value); handleTyping(); }}
-                onKeyDown={(e) => e.key === 'Enter' && !isUploading && sendMessage()}
-                onPaste={handlePaste}
-                placeholder={isUploading ? "Uploading image..." : "Type a message..."}
-                disabled={isUploading}
-              />
-              <button
-                className="send-btn"
-                onClick={() => sendMessage()}
-                disabled={isUploading}
-              >
-                Send
-              </button>
-            </div>
+                <input type="text" className="chat-input" value={messageInput} onChange={(e) => { setMessageInput(e.target.value); handleTyping(); }} onKeyDown={(e) => e.key === 'Enter' && !isUploading && sendMessage()} onPaste={handlePaste} placeholder={isUploading ? "Uploading image..." : "Type a message..."} disabled={isUploading} />
+                <button className="send-btn" onClick={() => sendMessage()} disabled={isUploading}>Send</button>
+              </div>
 
-              {/* Emoji Picker */}
               {showEmojiPicker && (
                 <div className="picker-popup emoji-picker">
                   <div className="picker-header">
@@ -2104,13 +1983,7 @@ function App() {
                     <button className="picker-close" onClick={() => { setShowEmojiPicker(false); setEmojiSearch(''); }}>×</button>
                   </div>
                   <div className="emoji-search">
-                    <input
-                      type="text"
-                      value={emojiSearch}
-                      onChange={(e) => setEmojiSearch(e.target.value)}
-                      placeholder="Search emojis..."
-                      autoFocus
-                    />
+                    <input type="text" value={emojiSearch} onChange={(e) => setEmojiSearch(e.target.value)} placeholder="Search emojis..." autoFocus />
                   </div>
                   <div className="emoji-grid-container">
                     {getFilteredEmojis().length === 0 ? (
@@ -2118,39 +1991,17 @@ function App() {
                     ) : (
                       <div className="emoji-grid">
                         {getFilteredEmojis().map((item, idx) => (
-                          <button
-                            key={idx}
-                            className="emoji-btn"
-                            onClick={() => { insertEmoji(item.emoji); setEmojiSearch(''); }}
-                            title={item.keywords}
-                          >
-                            {item.emoji}
-                          </button>
+                          <button key={idx} className="emoji-btn" onClick={() => { insertEmoji(item.emoji); setEmojiSearch(''); }} title={item.keywords}>{item.emoji}</button>
                         ))}
                       </div>
                     )}
                   </div>
                 </div>
               )}
-
             </div>
           </>
         )}
       </div>
-
-      {/* Remove Contact Confirmation Modal */}
-      {contactToRemove && (
-        <div className="modal-overlay" onClick={() => setContactToRemove(null)}>
-          <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Remove Contact</h3>
-            <p>Are you sure you want to remove <strong>{contactToRemove}</strong> from your contacts?</p>
-            <div className="modal-buttons">
-              <button className="modal-btn cancel" onClick={() => setContactToRemove(null)}>Cancel</button>
-              <button className="modal-btn danger" onClick={removeContact}>Remove</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Game Modal */}
       {activeGame && (
@@ -2160,98 +2011,47 @@ function App() {
               <h3>{activeGame.name}</h3>
               <button className="picker-close" onClick={() => setActiveGame(null)}>×</button>
             </div>
-
             <div className="game-players">
-              <span className={activeGame.currentTurn?.toLowerCase() === activeGame.players[0]?.toLowerCase() ? 'active-player' : ''}>
-                {activeGame.players[0]} (X)
-              </span>
+              <span className={activeGame.currentTurn?.toLowerCase() === activeGame.players[0]?.toLowerCase() ? 'active-player' : ''}>{activeGame.players[0]} (X)</span>
               <span>vs</span>
-              <span className={activeGame.currentTurn?.toLowerCase() === activeGame.players[1]?.toLowerCase() ? 'active-player' : ''}>
-                {activeGame.players[1]} (O)
-              </span>
+              <span className={activeGame.currentTurn?.toLowerCase() === activeGame.players[1]?.toLowerCase() ? 'active-player' : ''}>{activeGame.players[1]} (O)</span>
             </div>
 
             {activeGame.status === 'finished' && (
-              <div className={`game-result-banner ${
-                activeGame.winner === 'draw'
-                  ? 'draw'
-                  : activeGame.winner?.toLowerCase() === userName.toLowerCase()
-                    ? 'won'
-                    : 'lost'
-              }`}>
-                {activeGame.winner === 'draw'
-                  ? "It's a Draw!"
-                  : activeGame.winner?.toLowerCase() === userName.toLowerCase()
-                    ? "You Won!"
-                    : "You Lost!"}
+              <div className={`game-result-banner ${activeGame.winner === 'draw' ? 'draw' : activeGame.winner?.toLowerCase() === userName.toLowerCase() ? 'won' : 'lost'}`}>
+                {activeGame.winner === 'draw' ? "It's a Draw!" : activeGame.winner?.toLowerCase() === userName.toLowerCase() ? "You Won!" : "You Lost!"}
               </div>
             )}
 
-            {/* Tic Tac Toe Board */}
             {activeGame.type === 'tictactoe' && (
               <div className="tictactoe-board">
                 {activeGame.state.board.map((cell, idx) => (
-                  <button
-                    key={idx}
-                    className={`tictactoe-cell ${cell}`}
-                    onClick={() => makeGameMove(idx)}
-                    disabled={activeGame.status === 'finished' || cell !== null}
-                  >
-                    {cell}
-                  </button>
+                  <button key={idx} className={`tictactoe-cell ${cell}`} onClick={() => makeGameMove(idx)} disabled={activeGame.status === 'finished' || cell !== null}>{cell}</button>
                 ))}
               </div>
             )}
 
-            {/* Connect 4 Board */}
             {activeGame.type === 'connect4' && (
               <div className="connect4-board">
                 <div className="connect4-columns">
-                  {[0, 1, 2, 3, 4, 5, 6].map(col => (
-                    <button
-                      key={col}
-                      className="connect4-drop"
-                      onClick={() => makeGameMove(col)}
-                      disabled={activeGame.status === 'finished'}
-                    >
-                      ↓
-                    </button>
-                  ))}
+                  {[0,1,2,3,4,5,6].map(col => (<button key={col} className="connect4-drop" onClick={() => makeGameMove(col)} disabled={activeGame.status === 'finished'}>↓</button>))}
                 </div>
                 <div className="connect4-grid">
-                  {activeGame.state.board.map((cell, idx) => (
-                    <div
-                      key={idx}
-                      className={`connect4-cell ${cell ? (cell === 'X' ? 'red' : 'yellow') : ''}`}
-                    />
-                  ))}
+                  {activeGame.state.board.map((cell, idx) => (<div key={idx} className={`connect4-cell ${cell ? (cell === 'X' ? 'red' : 'yellow') : ''}`} />))}
                 </div>
               </div>
             )}
 
-            {/* Rock Paper Scissors */}
             {activeGame.type === 'rps' && (
               <div className="rps-game">
                 {activeGame.status === 'active' ? (
                   activeGame.state.choices[userName.toLowerCase()] ? (
-                    <div className="rps-waiting">
-                      <p>You chose: {activeGame.state.choices[userName.toLowerCase()]}</p>
-                      <p>Waiting for opponent...</p>
-                    </div>
+                    <div className="rps-waiting"><p>You chose: {activeGame.state.choices[userName.toLowerCase()]}</p><p>Waiting for opponent...</p></div>
                   ) : (
                     <div className="rps-choices">
-                      <button className="rps-btn" onClick={() => makeGameMove('rock')}>
-                        <span>✊</span>
-                        <span>Rock</span>
-                      </button>
-                      <button className="rps-btn" onClick={() => makeGameMove('paper')}>
-                        <span>✋</span>
-                        <span>Paper</span>
-                      </button>
-                      <button className="rps-btn" onClick={() => makeGameMove('scissors')}>
-                        <span>✌️</span>
-                        <span>Scissors</span>
-                      </button>
+                      <button className="rps-btn" onClick={() => makeGameMove('rock')}><span>✊</span><span>Rock</span></button>
+                      <button className="rps-btn" onClick={() => makeGameMove('paper')}><span>✋</span><span>Paper</span></button>
+                      <button className="rps-btn" onClick={() => makeGameMove('scissors')}><span>✌️</span><span>Scissors</span></button>
                     </div>
                   )
                 ) : (
@@ -2280,53 +2080,33 @@ function App() {
               </div>
             )}
 
-            {/* Coin Flip */}
             {activeGame.type === 'coinflip' && (
               <div className="coinflip-game">
                 {activeGame.status === 'active' ? (
                   activeGame.state.calls[userName.toLowerCase()] ? (
-                    <div className="coinflip-waiting">
-                      <p>You called: <strong>{activeGame.state.calls[userName.toLowerCase()]}</strong></p>
-                      <p>Waiting for opponent...</p>
-                    </div>
+                    <div className="coinflip-waiting"><p>You called: <strong>{activeGame.state.calls[userName.toLowerCase()]}</strong></p><p>Waiting for opponent...</p></div>
                   ) : (
                     <div className="coinflip-choices">
                       <p>Call it!</p>
                       <div className="coinflip-buttons">
-                        <button className="coinflip-btn" onClick={() => makeGameMove('heads')}>
-                          <span>🪙</span>
-                          <span>Heads</span>
-                        </button>
-                        <button className="coinflip-btn" onClick={() => makeGameMove('tails')}>
-                          <span>🪙</span>
-                          <span>Tails</span>
-                        </button>
+                        <button className="coinflip-btn" onClick={() => makeGameMove('heads')}><span>🪙</span><span>Heads</span></button>
+                        <button className="coinflip-btn" onClick={() => makeGameMove('tails')}><span>🪙</span><span>Tails</span></button>
                       </div>
                     </div>
                   )
                 ) : (
                   <div className="coinflip-result">
-                    <div className="coinflip-coin">
-                      <span>🪙</span>
-                      <p>The coin landed on: <strong>{activeGame.state.result}</strong></p>
-                    </div>
+                    <div className="coinflip-coin"><span>🪙</span><p>The coin landed on: <strong>{activeGame.state.result}</strong></p></div>
                     <div className="coinflip-final">
-                      <div className="coinflip-player-call">
-                        <span>{activeGame.players[0]}</span>
-                        <span className="coinflip-call">{activeGame.state.calls[activeGame.players[0].toLowerCase()]}</span>
-                      </div>
+                      <div className="coinflip-player-call"><span>{activeGame.players[0]}</span><span className="coinflip-call">{activeGame.state.calls[activeGame.players[0].toLowerCase()]}</span></div>
                       <div className="coinflip-vs">VS</div>
-                      <div className="coinflip-player-call">
-                        <span>{activeGame.players[1]}</span>
-                        <span className="coinflip-call">{activeGame.state.calls[activeGame.players[1].toLowerCase()]}</span>
-                      </div>
+                      <div className="coinflip-player-call"><span>{activeGame.players[1]}</span><span className="coinflip-call">{activeGame.state.calls[activeGame.players[1].toLowerCase()]}</span></div>
                     </div>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Number Guess */}
             {activeGame.type === 'numberguess' && (
               <div className="numberguess-game">
                 {(() => {
@@ -2338,20 +2118,13 @@ function App() {
 
                   if (activeGame.status === 'active') {
                     if (isPicker) {
-                      // Picker's view
                       if (activeGame.state.secretNumber === null) {
                         return (
                           <div className="numberguess-picker">
                             <p>You're the picker! Choose a number (1-50):</p>
                             <div className="numberguess-grid">
                               {Array.from({ length: 50 }, (_, i) => i + 1).map(num => (
-                                <button
-                                  key={num}
-                                  className="numberguess-btn"
-                                  onClick={() => makeGameMove(num)}
-                                >
-                                  {num}
-                                </button>
+                                <button key={num} className="numberguess-btn" onClick={() => makeGameMove(num)}>{num}</button>
                               ))}
                             </div>
                           </div>
@@ -2376,13 +2149,8 @@ function App() {
                         );
                       }
                     } else {
-                      // Guesser's view
                       if (activeGame.state.secretNumber === null) {
-                        return (
-                          <div className="numberguess-waiting-picker">
-                            <p>Waiting for {pickerName} to pick a number...</p>
-                          </div>
-                        );
+                        return (<div className="numberguess-waiting-picker"><p>Waiting for {pickerName} to pick a number...</p></div>);
                       } else {
                         return (
                           <div className="numberguess-guesser">
@@ -2390,21 +2158,12 @@ function App() {
                             {activeGame.state.guesses.length > 0 && (
                               <div className="numberguess-hint">
                                 <span>Last guess: <strong>{activeGame.state.guesses[activeGame.state.guesses.length - 1]}</strong></span>
-                                <span className={`numberguess-hint-text ${activeGame.state.hint}`}>
-                                  Go {activeGame.state.hint}!
-                                </span>
+                                <span className={`numberguess-hint-text ${activeGame.state.hint}`}>Go {activeGame.state.hint}!</span>
                               </div>
                             )}
                             <div className="numberguess-grid">
                               {Array.from({ length: 50 }, (_, i) => i + 1).map(num => (
-                                <button
-                                  key={num}
-                                  className={`numberguess-btn ${activeGame.state.guesses.includes(num) ? 'guessed' : ''}`}
-                                  onClick={() => makeGameMove(num)}
-                                  disabled={activeGame.state.guesses.includes(num)}
-                                >
-                                  {num}
-                                </button>
+                                <button key={num} className={`numberguess-btn ${activeGame.state.guesses.includes(num) ? 'guessed' : ''}`} onClick={() => makeGameMove(num)} disabled={activeGame.state.guesses.includes(num)}>{num}</button>
                               ))}
                             </div>
                             <p className="numberguess-attempts">Attempts: {activeGame.state.guesses.length}</p>
@@ -2413,16 +2172,13 @@ function App() {
                       }
                     }
                   } else {
-                    // Game finished
                     return (
                       <div className="numberguess-result">
                         <p className="numberguess-secret">The number was: <strong>{activeGame.state.secretNumber}</strong></p>
                         <p className="numberguess-attempts-final">{guesserName} guessed it in {activeGame.state.guesses.length} {activeGame.state.guesses.length === 1 ? 'try' : 'tries'}!</p>
                         <div className="numberguess-all-guesses">
                           {activeGame.state.guesses.map((guess, idx) => (
-                            <span key={idx} className={`numberguess-guess ${guess === activeGame.state.secretNumber ? 'correct' : guess < activeGame.state.secretNumber ? 'low' : 'high'}`}>
-                              {guess}
-                            </span>
+                            <span key={idx} className={`numberguess-guess ${guess === activeGame.state.secretNumber ? 'correct' : guess < activeGame.state.secretNumber ? 'low' : 'high'}`}>{guess}</span>
                           ))}
                         </div>
                       </div>
@@ -2432,7 +2188,6 @@ function App() {
               </div>
             )}
 
-            {/* Chopsticks */}
             {activeGame.type === 'chopsticks' && (
               <div className="chopsticks-game">
                 {(() => {
@@ -2442,14 +2197,11 @@ function App() {
                   const opponentHands = activeGame.state.hands[opponentIndex];
                   const isMyTurn = activeGame.currentTurn?.toLowerCase() === userName.toLowerCase();
                   const [selectedHand, setSelectedHandLocal] = [activeGame.state.selectedHand, (hand) => {
-                    setActiveGame(prev => ({
-                      ...prev,
-                      state: { ...prev.state, selectedHand: hand }
-                    }));
+                    setActiveGame(prev => ({ ...prev, state: { ...prev.state, selectedHand: hand } }));
                   }];
 
-                  const renderHand = (fingers, isOut) => {
-                    if (isOut || fingers === 0) return '✊';
+                  const renderHand = (fingers) => {
+                    if (fingers === 0) return '✊';
                     const fingerEmojis = ['✊', '☝️', '✌️', '🤟', '🖐️'];
                     return fingerEmojis[fingers] || '🖐️';
                   };
@@ -2457,12 +2209,9 @@ function App() {
                   const canSplit = () => {
                     const total = myHands.left + myHands.right;
                     if (total === 0) return false;
-                    // Check if there's a valid different split
                     for (let l = 0; l <= Math.min(4, total); l++) {
                       const r = total - l;
-                      if (r >= 0 && r <= 4 && (l !== myHands.left || r !== myHands.right)) {
-                        return true;
-                      }
+                      if (r >= 0 && r <= 4 && (l !== myHands.left || r !== myHands.right)) return true;
                     }
                     return false;
                   };
@@ -2472,76 +2221,44 @@ function App() {
                     const splits = [];
                     for (let l = 0; l <= Math.min(4, total); l++) {
                       const r = total - l;
-                      if (r >= 0 && r <= 4 && (l !== myHands.left || r !== myHands.right)) {
-                        splits.push({ left: l, right: r });
-                      }
+                      if (r >= 0 && r <= 4 && (l !== myHands.left || r !== myHands.right)) splits.push({ left: l, right: r });
                     }
                     return splits;
                   };
 
                   return (
                     <>
-                      {/* Opponent's hands */}
                       <div className="chopsticks-player opponent">
                         <div className="chopsticks-player-name">{activeGame.players[opponentIndex]}</div>
                         <div className="chopsticks-hands">
-                          <div
-                            className={`chopsticks-hand ${opponentHands.left === 0 ? 'out' : ''} ${selectedHand && isMyTurn ? 'targetable' : ''}`}
-                            onClick={() => {
-                              if (selectedHand && isMyTurn && opponentHands.left > 0 && activeGame.status === 'active') {
-                                makeGameMove({ type: 'tap', myHand: selectedHand, theirHand: 'left' });
-                              }
-                            }}
-                          >
+                          <div className={`chopsticks-hand ${opponentHands.left === 0 ? 'out' : ''} ${selectedHand && isMyTurn ? 'targetable' : ''}`}
+                            onClick={() => { if (selectedHand && isMyTurn && opponentHands.left > 0 && activeGame.status === 'active') makeGameMove({ type: 'tap', myHand: selectedHand, theirHand: 'left' }); }}>
                             <span className="hand-emoji">{renderHand(opponentHands.left)}</span>
                             <span className="finger-count">{opponentHands.left}</span>
                           </div>
-                          <div
-                            className={`chopsticks-hand ${opponentHands.right === 0 ? 'out' : ''} ${selectedHand && isMyTurn ? 'targetable' : ''}`}
-                            onClick={() => {
-                              if (selectedHand && isMyTurn && opponentHands.right > 0 && activeGame.status === 'active') {
-                                makeGameMove({ type: 'tap', myHand: selectedHand, theirHand: 'right' });
-                              }
-                            }}
-                          >
+                          <div className={`chopsticks-hand ${opponentHands.right === 0 ? 'out' : ''} ${selectedHand && isMyTurn ? 'targetable' : ''}`}
+                            onClick={() => { if (selectedHand && isMyTurn && opponentHands.right > 0 && activeGame.status === 'active') makeGameMove({ type: 'tap', myHand: selectedHand, theirHand: 'right' }); }}>
                             <span className="hand-emoji">{renderHand(opponentHands.right)}</span>
                             <span className="finger-count">{opponentHands.right}</span>
                           </div>
                         </div>
                       </div>
-
                       <div className="chopsticks-vs">VS</div>
-
-                      {/* My hands */}
                       <div className="chopsticks-player me">
                         <div className="chopsticks-player-name">{activeGame.players[myIndex]} (You)</div>
                         <div className="chopsticks-hands">
-                          <div
-                            className={`chopsticks-hand ${myHands.left === 0 ? 'out' : ''} ${selectedHand === 'left' ? 'selected' : ''} ${isMyTurn && myHands.left > 0 ? 'selectable' : ''}`}
-                            onClick={() => {
-                              if (isMyTurn && myHands.left > 0 && activeGame.status === 'active') {
-                                setSelectedHandLocal(selectedHand === 'left' ? null : 'left');
-                              }
-                            }}
-                          >
+                          <div className={`chopsticks-hand ${myHands.left === 0 ? 'out' : ''} ${selectedHand === 'left' ? 'selected' : ''} ${isMyTurn && myHands.left > 0 ? 'selectable' : ''}`}
+                            onClick={() => { if (isMyTurn && myHands.left > 0 && activeGame.status === 'active') setSelectedHandLocal(selectedHand === 'left' ? null : 'left'); }}>
                             <span className="hand-emoji">{renderHand(myHands.left)}</span>
                             <span className="finger-count">{myHands.left}</span>
                           </div>
-                          <div
-                            className={`chopsticks-hand ${myHands.right === 0 ? 'out' : ''} ${selectedHand === 'right' ? 'selected' : ''} ${isMyTurn && myHands.right > 0 ? 'selectable' : ''}`}
-                            onClick={() => {
-                              if (isMyTurn && myHands.right > 0 && activeGame.status === 'active') {
-                                setSelectedHandLocal(selectedHand === 'right' ? null : 'right');
-                              }
-                            }}
-                          >
+                          <div className={`chopsticks-hand ${myHands.right === 0 ? 'out' : ''} ${selectedHand === 'right' ? 'selected' : ''} ${isMyTurn && myHands.right > 0 ? 'selectable' : ''}`}
+                            onClick={() => { if (isMyTurn && myHands.right > 0 && activeGame.status === 'active') setSelectedHandLocal(selectedHand === 'right' ? null : 'right'); }}>
                             <span className="hand-emoji">{renderHand(myHands.right)}</span>
                             <span className="finger-count">{myHands.right}</span>
                           </div>
                         </div>
                       </div>
-
-                      {/* Instructions and Split option */}
                       {activeGame.status === 'active' && isMyTurn && (
                         <div className="chopsticks-actions">
                           {selectedHand ? (
@@ -2553,13 +2270,7 @@ function App() {
                             <div className="chopsticks-split">
                               <span>Split:</span>
                               {getValidSplits().map((split, idx) => (
-                                <button
-                                  key={idx}
-                                  className="chopsticks-split-btn"
-                                  onClick={() => makeGameMove({ type: 'split', left: split.left, right: split.right })}
-                                >
-                                  {split.left}-{split.right}
-                                </button>
+                                <button key={idx} className="chopsticks-split-btn" onClick={() => makeGameMove({ type: 'split', left: split.left, right: split.right })}>{split.left}-{split.right}</button>
                               ))}
                             </div>
                           )}
@@ -2574,46 +2285,14 @@ function App() {
             {activeGame.status === 'active' && (
               <div className="game-turn-indicator">
                 {!['rps', 'coinflip', 'numberguess'].includes(activeGame.type) && (
-                  activeGame.currentTurn.toLowerCase() === userName.toLowerCase()
-                    ? "Your turn!"
-                    : `Waiting for ${activeGame.currentTurn}...`
+                  activeGame.currentTurn.toLowerCase() === userName.toLowerCase() ? "Your turn!" : `Waiting for ${activeGame.currentTurn}...`
                 )}
               </div>
             )}
 
             <div className="game-modal-actions">
-              <button className="game-btn quit" onClick={() => setActiveGame(null)}>
-                Quit
-              </button>
-              {activeGame.status === 'finished' && (
-                <button className="game-btn rematch" onClick={startRematch}>
-                  Rematch
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Contact Modal */}
-      {showContactModal && (
-        <div className="modal-overlay" onClick={() => setShowContactModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Add Contact</h3>
-            <p style={{ marginBottom: '15px', color: 'var(--text-secondary)' }}>Enter the username of the person you want to add. They will receive an invite.</p>
-            <input
-              type="text"
-              className="modal-input"
-              value={newContactName}
-              onChange={(e) => { setNewContactName(e.target.value); setContactError(''); }}
-              onKeyDown={(e) => e.key === 'Enter' && addContact()}
-              placeholder="Enter username..."
-              autoFocus
-            />
-            {contactError && <div className="error-message">{contactError}</div>}
-            <div className="modal-buttons">
-              <button className="modal-btn cancel" onClick={() => setShowContactModal(false)}>Cancel</button>
-              <button className="modal-btn confirm" onClick={addContact}>Send Invite</button>
+              <button className="game-btn quit" onClick={() => setActiveGame(null)}>Quit</button>
+              {activeGame.status === 'finished' && (<button className="game-btn rematch" onClick={startRematch}>Rematch</button>)}
             </div>
           </div>
         </div>
@@ -2624,29 +2303,15 @@ function App() {
         <div className="modal-overlay" onClick={() => setShowGroupModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>Create Group Chat</h3>
-            <input
-              type="text"
-              className="modal-input"
-              value={newGroupName}
-              onChange={(e) => setNewGroupName(e.target.value)}
-              placeholder="Enter group name..."
-              autoFocus
-            />
+            <input type="text" className="modal-input" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="Enter group name..." autoFocus />
             <p style={{ marginBottom: '10px', color: 'var(--text-secondary)' }}>Select members:</p>
             <div className="contact-checkboxes">
               {contacts.map(contact => (
                 <label key={contact.name} className="contact-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={selectedMembers.includes(contact.name)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedMembers([...selectedMembers, contact.name]);
-                      } else {
-                        setSelectedMembers(selectedMembers.filter(n => n !== contact.name));
-                      }
-                    }}
-                  />
+                  <input type="checkbox" checked={selectedMembers.includes(contact.name)} onChange={(e) => {
+                    if (e.target.checked) setSelectedMembers([...selectedMembers, contact.name]);
+                    else setSelectedMembers(selectedMembers.filter(n => n !== contact.name));
+                  }} />
                   <span>{contact.name}</span>
                 </label>
               ))}
@@ -2663,117 +2328,105 @@ function App() {
       {showSettingsModal && (
         <div className="settings-page">
           <div className="settings-page-header">
-            <button className="settings-back-btn" onClick={() => setShowSettingsModal(false)}>
-              ←
-            </button>
+            <button className="settings-back-btn" onClick={() => setShowSettingsModal(false)}>←</button>
             <h2>Settings</h2>
           </div>
-
           <div className="settings-page-content">
             <div className="settings-avatar-section">
-              <input
-                type="file"
-                ref={avatarInputRef}
-                onChange={(e) => handleAvatarSelect(e, false)}
-                accept="image/*"
-                style={{ display: 'none' }}
-              />
+              <input type="file" ref={avatarInputRef} onChange={(e) => handleAvatarSelect(e, false)} accept="image/*" style={{ display: 'none' }} />
               <div className="settings-avatar" onClick={() => avatarInputRef.current?.click()}>
                 {tempAvatar ? <img src={tempAvatar} alt="Avatar" /> : userName.charAt(0).toUpperCase()}
                 <div className="settings-avatar-overlay">Change</div>
               </div>
               {tempAvatar && (
                 <div className="avatar-actions">
-                  <button
-                    className="avatar-action-btn edit"
-                    onClick={() => editExistingAvatar(false)}
-                  >
-                    Edit crop
-                  </button>
-                  <button
-                    className="avatar-action-btn remove"
-                    onClick={() => setTempAvatar(null)}
-                  >
-                    Remove
-                  </button>
+                  <button className="avatar-action-btn edit" onClick={() => editExistingAvatar(false)}>Edit crop</button>
+                  <button className="avatar-action-btn remove" onClick={() => setTempAvatar(null)}>Remove</button>
                 </div>
               )}
             </div>
-
             <div className="settings-section">
-              <h4>Username</h4>
-              <input
-                type="text"
-                className="modal-input"
-                value={settingsNewUsername}
-                onChange={(e) => setSettingsNewUsername(e.target.value)}
-                placeholder="Username"
-              />
+              <h4>Name</h4>
+              <input type="text" className="modal-input" value={settingsNewUsername} onChange={(e) => setSettingsNewUsername(e.target.value)} placeholder="Your name" />
             </div>
-
             <div className="settings-section">
               <h4>Theme</h4>
               <div className="theme-options">
                 {['green', 'blue', 'purple', 'orange', 'dark'].map(theme => (
-                  <button
-                    key={theme}
-                    className={`theme-option ${theme} ${tempTheme === theme ? 'active' : ''}`}
-                    onClick={() => setTempTheme(theme)}
-                    title={theme.charAt(0).toUpperCase() + theme.slice(1)}
-                  />
+                  <button key={theme} className={`theme-option ${theme} ${tempTheme === theme ? 'active' : ''}`} onClick={() => setTempTheme(theme)} title={theme.charAt(0).toUpperCase() + theme.slice(1)} />
                 ))}
               </div>
             </div>
-
             <div className="settings-section">
               <h4>Notifications</h4>
               <label className="toggle-setting">
-                <input
-                  type="checkbox"
-                  checked={tempSoundEnabled}
-                  onChange={(e) => setTempSoundEnabled(e.target.checked)}
-                />
+                <input type="checkbox" checked={tempSoundEnabled} onChange={(e) => setTempSoundEnabled(e.target.checked)} />
                 <span className="toggle-slider"></span>
                 <span className="toggle-label">Message sound</span>
               </label>
             </div>
-
-            <div className="settings-section">
-              <h4>Change Password</h4>
-              <div className="password-inputs">
-                <input
-                  type="password"
-                  className="modal-input"
-                  value={settingsCurrentPassword}
-                  onChange={(e) => setSettingsCurrentPassword(e.target.value)}
-                  placeholder="Current password"
-                  style={{ marginBottom: 0 }}
-                />
-                <input
-                  type="password"
-                  className="modal-input"
-                  value={settingsNewPassword}
-                  onChange={(e) => setSettingsNewPassword(e.target.value)}
-                  placeholder="New password"
-                  style={{ marginBottom: 0 }}
-                />
-                <input
-                  type="password"
-                  className="modal-input"
-                  value={settingsConfirmPassword}
-                  onChange={(e) => setSettingsConfirmPassword(e.target.value)}
-                  placeholder="Confirm new password"
-                  style={{ marginBottom: 0 }}
-                />
-              </div>
-            </div>
-
             {settingsError && <div className="error-message">{settingsError}</div>}
           </div>
-
           <div className="settings-page-footer">
             <button className="modal-btn cancel" onClick={() => setShowSettingsModal(false)}>Cancel</button>
             <button className="modal-btn confirm" onClick={saveSettings}>Save</button>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Space Settings */}
+      {showSpaceSettings && spaceInfo && (
+        <div className="settings-page">
+          <div className="settings-page-header">
+            <button className="settings-back-btn" onClick={() => setShowSpaceSettings(false)}>←</button>
+            <h2>Space Settings</h2>
+          </div>
+          <div className="settings-page-content">
+            <div className="settings-section">
+              <h4>Space Name</h4>
+              <div className="settings-info-text">{spaceInfo.name}</div>
+            </div>
+            <div className="settings-section">
+              <h4>Space Code</h4>
+              <div className="space-code-display">
+                <span className="space-code-value">{spaceInfo.code}</span>
+                <button className="space-code-change-btn" onClick={handleChangeSpaceCode}>Change Code</button>
+              </div>
+              <p className="settings-hint">Share this code with people to let them join your space</p>
+            </div>
+            <div className="settings-section">
+              <h4>Members ({spaceInfo.memberCount})</h4>
+              <div className="space-member-list">
+                {spaceInfo.members?.map(member => (
+                  <div key={member} className="space-member-item">
+                    <span>{member}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="settings-section">
+              <h4>Ban User</h4>
+              <div className="add-member-section">
+                <input type="text" className="modal-input" value={banNameInput} onChange={(e) => setBanNameInput(e.target.value)} placeholder="Username to ban..." onKeyDown={(e) => e.key === 'Enter' && handleBanUser()} />
+                <button className="add-member-btn danger-btn" onClick={handleBanUser}>Ban</button>
+              </div>
+            </div>
+            {spaceInfo.banned?.length > 0 && (
+              <div className="settings-section">
+                <h4>Banned Users</h4>
+                <div className="banned-list">
+                  {spaceInfo.banned.map(name => (
+                    <div key={name} className="banned-item">
+                      <span>{name}</span>
+                      <button className="unban-btn" onClick={() => handleUnbanUser(name)}>Unban</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="settings-page-footer">
+            <button className="modal-btn cancel" onClick={() => setShowSpaceSettings(false)}>Close</button>
           </div>
         </div>
       )}
@@ -2782,21 +2435,12 @@ function App() {
       {showGroupSettingsModal && currentGroup && (
         <div className="settings-page">
           <div className="settings-page-header">
-            <button className="settings-back-btn" onClick={() => setShowGroupSettingsModal(false)}>
-              ←
-            </button>
+            <button className="settings-back-btn" onClick={() => setShowGroupSettingsModal(false)}>←</button>
             <h2>Group Settings</h2>
           </div>
-
           <div className="settings-page-content">
             <div className="settings-avatar-section">
-              <input
-                type="file"
-                ref={groupAvatarInputRef}
-                onChange={(e) => handleAvatarSelect(e, true)}
-                accept="image/*"
-                style={{ display: 'none' }}
-              />
+              <input type="file" ref={groupAvatarInputRef} onChange={(e) => handleAvatarSelect(e, true)} accept="image/*" style={{ display: 'none' }} />
               {isGroupManager ? (
                 <div className="settings-avatar group-avatar" onClick={() => groupAvatarInputRef.current?.click()}>
                   {tempGroupAvatar ? <img src={tempGroupAvatar} alt="Group" /> : currentGroup.name.charAt(0).toUpperCase()}
@@ -2809,78 +2453,46 @@ function App() {
               )}
               {isGroupManager && tempGroupAvatar && (
                 <div className="avatar-actions">
-                  <button
-                    className="avatar-action-btn edit"
-                    onClick={() => editExistingAvatar(true)}
-                  >
-                    Edit crop
-                  </button>
+                  <button className="avatar-action-btn edit" onClick={() => editExistingAvatar(true)}>Edit crop</button>
                 </div>
               )}
             </div>
-
             <div className="settings-section">
               <h4>Group Name</h4>
               {isGroupManager ? (
-                <input
-                  type="text"
-                  className="modal-input"
-                  value={editGroupName}
-                  onChange={(e) => setEditGroupName(e.target.value)}
-                  placeholder="Group name"
-                />
+                <input type="text" className="modal-input" value={editGroupName} onChange={(e) => setEditGroupName(e.target.value)} placeholder="Group name" />
               ) : (
                 <div className="settings-info-text">{currentGroup.name}</div>
               )}
             </div>
-
             <div className="settings-section">
               <h4>Description</h4>
               {isGroupManager ? (
-                <input
-                  type="text"
-                  className="modal-input"
-                  value={editGroupDescription}
-                  onChange={(e) => setEditGroupDescription(e.target.value)}
-                  placeholder="Group description (optional)"
-                />
+                <input type="text" className="modal-input" value={editGroupDescription} onChange={(e) => setEditGroupDescription(e.target.value)} placeholder="Group description (optional)" />
               ) : (
                 <div className="settings-info-text">{currentGroup.description || 'No description'}</div>
               )}
             </div>
-
             {isGroupManager && (
               <div className="settings-section">
                 <h4>Add Member</h4>
                 <div className="add-member-section">
-                  <input
-                    type="text"
-                    className="modal-input"
-                    value={newMemberName}
-                    onChange={(e) => setNewMemberName(e.target.value)}
-                    placeholder="Enter username..."
-                    onKeyDown={(e) => e.key === 'Enter' && addGroupMember()}
-                  />
+                  <input type="text" className="modal-input" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} placeholder="Enter username..." onKeyDown={(e) => e.key === 'Enter' && addGroupMember()} />
                   <button className="add-member-btn" onClick={addGroupMember}>Add</button>
                 </div>
               </div>
             )}
-
             <div className="settings-section">
               <h4>Members ({currentGroup.members?.length})</h4>
               <div className="group-member-list">
                 {currentGroup.members?.map(member => (
                   <div key={member} className="group-member-item">
                     <div className="avatar">
-                      {getMemberAvatar(member) ? (
-                        <img src={getMemberAvatar(member)} alt={member} />
-                      ) : member.charAt(0).toUpperCase()}
+                      {getMemberAvatar(member) ? (<img src={getMemberAvatar(member)} alt={member} />) : member.charAt(0).toUpperCase()}
                     </div>
                     <div className="group-member-info">
                       <div className="group-member-name">{member}</div>
-                      {member.toLowerCase() === currentGroup.creator?.toLowerCase() && (
-                        <div className="group-member-role">Manager</div>
-                      )}
+                      {member.toLowerCase() === currentGroup.creator?.toLowerCase() && (<div className="group-member-role">Manager</div>)}
                     </div>
                     {isGroupManager && member.toLowerCase() !== currentGroup.creator?.toLowerCase() && (
                       <button className="remove-member-btn" onClick={() => removeGroupMember(member)}>Remove</button>
@@ -2889,20 +2501,12 @@ function App() {
                 ))}
               </div>
             </div>
-
             {groupSettingsError && <div className="error-message">{groupSettingsError}</div>}
           </div>
-
           <div className="settings-page-footer">
-            {!isGroupManager && (
-              <button className="leave-group-btn" onClick={leaveGroup}>Leave Group</button>
-            )}
-            <button className="modal-btn cancel" onClick={() => setShowGroupSettingsModal(false)}>
-              {isGroupManager ? 'Cancel' : 'Close'}
-            </button>
-            {isGroupManager && (
-              <button className="modal-btn confirm" onClick={saveGroupSettings}>Save</button>
-            )}
+            {!isGroupManager && !currentGroup.isMainGroup && (<button className="leave-group-btn" onClick={leaveGroup}>Leave Group</button>)}
+            <button className="modal-btn cancel" onClick={() => setShowGroupSettingsModal(false)}>{isGroupManager ? 'Cancel' : 'Close'}</button>
+            {isGroupManager && (<button className="modal-btn confirm" onClick={saveGroupSettings}>Save</button>)}
           </div>
         </div>
       )}
@@ -2912,35 +2516,13 @@ function App() {
         <div className="modal-overlay" onClick={() => setShowCropper(false)}>
           <div className="modal cropper-modal" onClick={(e) => e.stopPropagation()}>
             <h3>Crop Image</h3>
-            <div
-              className="cropper-container"
-              ref={cropperRef}
-              onMouseDown={handleCropMouseDown}
-              onMouseMove={handleCropMouseMove}
-              onMouseUp={handleCropMouseUp}
-              onMouseLeave={handleCropMouseUp}
-            >
-              <img
-                src={cropperImage}
-                alt="Crop"
-                className="cropper-image"
-                style={{
-                  transform: `translate(calc(-50% + ${cropPosition.x}px), calc(-50% + ${cropPosition.y}px)) scale(${cropScale})`
-                }}
-                draggable={false}
-              />
+            <div className="cropper-container" ref={cropperRef} onMouseDown={handleCropMouseDown} onMouseMove={handleCropMouseMove} onMouseUp={handleCropMouseUp} onMouseLeave={handleCropMouseUp}>
+              <img src={cropperImage} alt="Crop" className="cropper-image" style={{ transform: `translate(calc(-50% + ${cropPosition.x}px), calc(-50% + ${cropPosition.y}px)) scale(${cropScale})` }} draggable={false} />
               <div className="cropper-overlay"></div>
             </div>
             <div className="cropper-controls">
               <label>Zoom:</label>
-              <input
-                type="range"
-                min={minCropScale}
-                max="3"
-                step="0.01"
-                value={cropScale}
-                onChange={(e) => setCropScale(parseFloat(e.target.value))}
-              />
+              <input type="range" min={minCropScale} max="3" step="0.01" value={cropScale} onChange={(e) => setCropScale(parseFloat(e.target.value))} />
             </div>
             <div className="modal-buttons">
               <button className="modal-btn cancel" onClick={() => setShowCropper(false)}>Cancel</button>

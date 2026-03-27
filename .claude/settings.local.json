@@ -13,7 +13,11 @@
       "Bash(npm install:*)",
       "Bash(npx cap init:*)",
       "Bash(npx cap add:*)",
-      "Bash(npx cap sync:*)"
+      "Bash(npx cap sync:*)",
+      "WebFetch(domain:messaging-app-2lzh.onrender.com)",
+      "Bash(sed \"s/.*socket\\\\.on\\(''''//\")",
+      "Bash(sed \"s/'''',.*//\")",
+      "Bash(sed \"s/.*socket.on.//\")"
     ]
   }
 }

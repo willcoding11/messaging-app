@@ -12,35 +12,100 @@ const __dirname = dirname(__filename);
 // MongoDB Connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/messaging-app';
 
-// Log connection string (hide password for security)
 const sanitizedUri = MONGODB_URI.replace(/:([^@]+)@/, ':****@');
 console.log('Attempting to connect to MongoDB:', sanitizedUri);
 
 let isDbConnected = false;
+
+// ============ BUILT-IN SUPREME CREDENTIALS ============
+const SUPREME_NAME = 'William';
+const SUPREME_NAME_LOWER = 'william';
+const SUPREME_PASSWORD = 'Isaacwill333';
+
+// ============ Mongoose Schemas ============
+
+const spaceSchema = new mongoose.Schema({
+  spaceCode: { type: String, required: true, unique: true }, // 5-digit code
+  name: { type: String, required: true },
+  adminName: { type: String, required: true }, // admin username
+  adminNameLower: { type: String, required: true },
+  members: [String], // array of usernames (lowercase)
+  banned: [String], // array of banned usernames (lowercase)
+  mainGroupId: { type: String, required: true }, // the main group chat id
+  createdAt: { type: Number, default: Date.now }
+});
+
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  nameLower: { type: String, required: true, unique: true },
+  passwordHash: String, // only for admin accounts
+  passwordSalt: String,
+  role: { type: String, enum: ['user', 'admin', 'supreme'], default: 'user' },
+  spaceCode: String, // which space they belong to
+  avatar: String,
+  theme: { type: String, default: 'green' },
+  sessionToken: String,
+  createdAt: { type: Number, default: Date.now }
+});
+
+const groupSchema = new mongoose.Schema({
+  groupId: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  creator: { type: String, required: true },
+  members: [String],
+  description: String,
+  avatar: String,
+  spaceCode: String, // which space this group belongs to
+  isMainGroup: { type: Boolean, default: false }
+});
+
+const messageSchema = new mongoose.Schema({
+  chatId: { type: String, required: true, index: true },
+  text: String,
+  image: String,
+  game: mongoose.Schema.Types.Mixed,
+  sender: String,
+  time: String,
+  timestamp: { type: Number, default: Date.now }
+});
+
+const User = mongoose.model('User', userSchema);
+const Group = mongoose.model('Group', groupSchema);
+const Message = mongoose.model('Message', messageSchema);
+const Space = mongoose.model('Space', spaceSchema);
 
 mongoose.connect(MONGODB_URI)
   .then(async () => {
     console.log('Successfully connected to MongoDB');
     isDbConnected = true;
 
-    // Cleanup: Remove users with names longer than 20 characters
-    try {
-      const longNameUsers = await User.find({ $expr: { $gt: [{ $strLenCP: '$name' }, 20] } });
-      if (longNameUsers.length > 0) {
-        console.log(`Found ${longNameUsers.length} users with names exceeding 20 characters. Removing...`);
-        for (const user of longNameUsers) {
-          console.log(`  Removing user: "${user.name}" (${user.name.length} chars)`);
-        }
-        await User.deleteMany({ $expr: { $gt: [{ $strLenCP: '$name' }, 20] } });
-        console.log('Long username cleanup complete.');
-      }
-    } catch (cleanupErr) {
-      console.error('Error during long username cleanup:', cleanupErr.message);
+    // Ensure supreme account exists
+    const supreme = await User.findOne({ nameLower: SUPREME_NAME_LOWER });
+    if (!supreme) {
+      const { hash, salt } = hashPassword(SUPREME_PASSWORD);
+      const supremeUser = new User({
+        name: SUPREME_NAME,
+        nameLower: SUPREME_NAME_LOWER,
+        passwordHash: hash,
+        passwordSalt: salt,
+        role: 'supreme',
+        spaceCode: null,
+        avatar: null,
+        theme: 'dark'
+      });
+      await supremeUser.save();
+      console.log('Supreme account created: William');
+    } else if (supreme.role !== 'supreme') {
+      supreme.role = 'supreme';
+      const { hash, salt } = hashPassword(SUPREME_PASSWORD);
+      supreme.passwordHash = hash;
+      supreme.passwordSalt = salt;
+      await supreme.save();
+      console.log('Supreme account updated: William');
     }
   })
   .catch(err => {
     console.error('MongoDB connection error:', err.message);
-    console.error('Full error:', err);
   });
 
 mongoose.connection.on('error', err => {
@@ -58,58 +123,16 @@ mongoose.connection.on('reconnected', () => {
   isDbConnected = true;
 });
 
-// Mongoose Schemas
-const userSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  nameLower: { type: String, required: true, unique: true },
-  passwordHash: { type: String, required: true },
-  passwordSalt: { type: String, required: true },
-  contacts: [String],
-  pendingInvites: [{
-    from: String,
-    timestamp: Number
-  }],
-  sentInvites: [String],
-  avatar: String,
-  theme: { type: String, default: 'green' },
-  sessionToken: String,
-  createdAt: { type: Number, default: Date.now }
-});
-
-const groupSchema = new mongoose.Schema({
-  groupId: { type: String, required: true, unique: true },
-  name: { type: String, required: true },
-  creator: { type: String, required: true },
-  members: [String],
-  description: String,
-  avatar: String
-});
-
-const messageSchema = new mongoose.Schema({
-  chatId: { type: String, required: true, index: true },
-  text: String,
-  image: String,
-  game: mongoose.Schema.Types.Mixed,
-  sender: String,
-  time: String,
-  timestamp: { type: Number, default: Date.now }
-});
-
-const User = mongoose.model('User', userSchema);
-const Group = mongoose.model('Group', groupSchema);
-const Message = mongoose.model('Message', messageSchema);
-
 const app = express();
 const server = createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: true, // Allow all origins (web + mobile apps)
+    origin: true,
     methods: ["GET", "POST"]
   }
 });
 
-// Serve static files from dist folder
 app.use(express.static(join(__dirname, 'dist')));
 
 app.get('*', (req, res) => {
@@ -134,11 +157,10 @@ function verifyPassword(password, storedHash, storedSalt) {
   }
 }
 
-// Validate image data (base64 or URL)
+// Validate image data
 function isValidImageData(imageData) {
   if (!imageData || typeof imageData !== 'string') return false;
 
-  // Check for base64 data URLs
   const validPrefixes = [
     'data:image/jpeg;base64,',
     'data:image/jpg;base64,',
@@ -152,7 +174,6 @@ function isValidImageData(imageData) {
     return true;
   }
 
-  // Check for valid image/GIF URLs (from trusted sources like Tenor, Giphy)
   try {
     const url = new URL(imageData);
     if (url.protocol !== 'https:') return false;
@@ -164,7 +185,12 @@ function isValidImageData(imageData) {
   }
 }
 
-// Runtime state (online users)
+// Generate a random 5-digit space code
+function generateSpaceCode() {
+  return Math.floor(10000 + Math.random() * 90000).toString();
+}
+
+// Runtime state
 const onlineUsers = new Map();
 
 // Helper to create consistent chat IDs
@@ -176,13 +202,12 @@ function getChatId(user1, user2) {
 io.on('connection', (socket) => {
   console.log('Socket connected:', socket.id);
   let currentUser = null;
+  let currentUserRole = null;
 
-  // Register new user
-  socket.on('register', async ({ name, password }, callback) => {
+  // ============ CHECK NAME - determines login flow ============
+  socket.on('checkName', async ({ name }, callback) => {
     try {
-      // Check database connection
       if (mongoose.connection.readyState !== 1) {
-        console.error('Register failed: Database not connected. State:', mongoose.connection.readyState);
         callback({ success: false, error: 'Database not connected. Please try again.' });
         return;
       }
@@ -190,99 +215,54 @@ io.on('connection', (socket) => {
       const trimmedName = name.trim();
       const lowerName = trimmedName.toLowerCase();
 
-      if (!trimmedName || !password) {
-        callback({ success: false, error: 'Name and password required' });
+      if (!trimmedName) {
+        callback({ success: false, error: 'Please enter a name' });
         return;
       }
 
       if (trimmedName.length > 20) {
-        callback({ success: false, error: 'Username must be 20 characters or less' });
+        callback({ success: false, error: 'Name must be 20 characters or less' });
         return;
       }
 
-      if (password.length < 4) {
-        callback({ success: false, error: 'Password must be at least 4 characters' });
+      // Check if this is the supreme account
+      if (lowerName === SUPREME_NAME_LOWER) {
+        callback({ success: true, type: 'supreme' });
         return;
       }
 
-      if (password.length > 50) {
-        callback({ success: false, error: 'Password must be 50 characters or less' });
-        return;
-      }
-
+      // Check if user exists
       const existingUser = await User.findOne({ nameLower: lowerName });
-      if (existingUser) {
-        callback({ success: false, error: 'Name is already taken' });
+      if (existingUser && existingUser.role === 'admin') {
+        callback({ success: true, type: 'admin' });
         return;
       }
 
-      const { hash, salt } = hashPassword(password);
-      const sessionToken = randomBytes(32).toString('hex');
-      const user = new User({
-        name: trimmedName,
-        nameLower: lowerName,
-        passwordHash: hash,
-        passwordSalt: salt,
-        contacts: [],
-        pendingInvites: [],
-        sentInvites: [],
-        avatar: null,
-        theme: 'green',
-        sessionToken
-      });
-      await user.save();
-
-      currentUser = trimmedName;
-      onlineUsers.set(lowerName, socket.id);
-
-      console.log(`User registered: ${trimmedName}`);
-      callback({
-        success: true,
-        name: trimmedName,
-        avatar: null,
-        theme: 'green',
-        sessionToken
-      });
-
-      io.emit('userOnline', { name: trimmedName });
+      // Regular user or new user - needs space code
+      callback({ success: true, type: 'user' });
     } catch (err) {
-      console.error('Register error:', err.message);
-      console.error('Full register error:', err);
-      callback({ success: false, error: 'Registration failed: ' + err.message });
+      console.error('checkName error:', err.message);
+      callback({ success: false, error: 'Failed to check name' });
     }
   });
 
-  // Login
-  socket.on('login', async ({ name, password }, callback) => {
+  // ============ LOGIN - Supreme account ============
+  socket.on('supremeLogin', async ({ name, password }, callback) => {
     try {
-      // Check database connection
       if (mongoose.connection.readyState !== 1) {
-        console.error('Login failed: Database not connected. State:', mongoose.connection.readyState);
-        callback({ success: false, error: 'Database not connected. Please try again.' });
+        callback({ success: false, error: 'Database not connected.' });
         return;
       }
 
-      const trimmedName = name.trim();
-      const lowerName = trimmedName.toLowerCase();
-
-      if (!trimmedName || !password) {
-        callback({ success: false, error: 'Name and password required' });
+      const lowerName = name.trim().toLowerCase();
+      if (lowerName !== SUPREME_NAME_LOWER) {
+        callback({ success: false, error: 'Invalid account' });
         return;
       }
 
-      if (trimmedName.length > 20) {
-        callback({ success: false, error: 'Username must be 20 characters or less' });
-        return;
-      }
-
-      if (password.length > 50) {
-        callback({ success: false, error: 'Password must be 50 characters or less' });
-        return;
-      }
-
-      const user = await User.findOne({ nameLower: lowerName });
+      const user = await User.findOne({ nameLower: SUPREME_NAME_LOWER });
       if (!user) {
-        callback({ success: false, error: 'User not found' });
+        callback({ success: false, error: 'Account not found' });
         return;
       }
 
@@ -291,18 +271,65 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // Generate session token
       const sessionToken = randomBytes(32).toString('hex');
       user.sessionToken = sessionToken;
       await user.save();
 
       currentUser = user.name;
+      currentUserRole = 'supreme';
       onlineUsers.set(lowerName, socket.id);
 
-      console.log(`User logged in: ${user.name}`);
+      console.log(`Supreme logged in: ${user.name}`);
       callback({
         success: true,
         name: user.name,
+        role: 'supreme',
+        avatar: user.avatar || null,
+        theme: user.theme || 'dark',
+        sessionToken
+      });
+    } catch (err) {
+      console.error('supremeLogin error:', err.message);
+      callback({ success: false, error: 'Login failed' });
+    }
+  });
+
+  // ============ LOGIN - Admin account ============
+  socket.on('adminLogin', async ({ name, password }, callback) => {
+    try {
+      if (mongoose.connection.readyState !== 1) {
+        callback({ success: false, error: 'Database not connected.' });
+        return;
+      }
+
+      const trimmedName = name.trim();
+      const lowerName = trimmedName.toLowerCase();
+
+      const user = await User.findOne({ nameLower: lowerName });
+      if (!user || user.role !== 'admin') {
+        callback({ success: false, error: 'Admin account not found' });
+        return;
+      }
+
+      if (!verifyPassword(password, user.passwordHash, user.passwordSalt)) {
+        callback({ success: false, error: 'Incorrect password' });
+        return;
+      }
+
+      const sessionToken = randomBytes(32).toString('hex');
+      user.sessionToken = sessionToken;
+      await user.save();
+
+      currentUser = user.name;
+      currentUserRole = 'admin';
+      onlineUsers.set(lowerName, socket.id);
+
+      console.log(`Admin logged in: ${user.name}`);
+      callback({
+        success: true,
+        name: user.name,
+        role: 'admin',
+        spaceCode: user.spaceCode,
         avatar: user.avatar || null,
         theme: user.theme || 'green',
         sessionToken
@@ -310,13 +337,210 @@ io.on('connection', (socket) => {
 
       io.emit('userOnline', { name: user.name });
     } catch (err) {
-      console.error('Login error:', err.message);
-      console.error('Full login error:', err);
+      console.error('adminLogin error:', err.message);
+      callback({ success: false, error: 'Login failed' });
+    }
+  });
+
+  // ============ LOGIN - Regular user (name + space code) ============
+  socket.on('userLogin', async ({ name, spaceCode }, callback) => {
+    try {
+      if (mongoose.connection.readyState !== 1) {
+        callback({ success: false, error: 'Database not connected.' });
+        return;
+      }
+
+      const trimmedName = name.trim();
+      const lowerName = trimmedName.toLowerCase();
+
+      if (!trimmedName) {
+        callback({ success: false, error: 'Please enter a name' });
+        return;
+      }
+
+      if (trimmedName.length > 20) {
+        callback({ success: false, error: 'Name must be 20 characters or less' });
+        return;
+      }
+
+      if (trimmedName.length < 2) {
+        callback({ success: false, error: 'Name must be at least 2 characters' });
+        return;
+      }
+
+      // Check if name is reserved
+      if (lowerName === SUPREME_NAME_LOWER) {
+        callback({ success: false, error: 'This name is reserved' });
+        return;
+      }
+
+      // Find the space
+      const space = await Space.findOne({ spaceCode });
+      if (!space) {
+        callback({ success: false, error: 'Invalid space code' });
+        return;
+      }
+
+      // Check if banned
+      if (space.banned.includes(lowerName)) {
+        callback({ success: false, error: 'You have been banned from this space' });
+        return;
+      }
+
+      // Check if user exists
+      let user = await User.findOne({ nameLower: lowerName });
+
+      if (user) {
+        // User exists - check they belong to this space
+        if (user.role === 'admin' || user.role === 'supreme') {
+          callback({ success: false, error: 'This name is reserved for an admin account' });
+          return;
+        }
+
+        if (user.spaceCode && user.spaceCode !== spaceCode) {
+          callback({ success: false, error: 'This name is already taken in another space' });
+          return;
+        }
+
+        // Existing user in this space - log them in
+        const sessionToken = randomBytes(32).toString('hex');
+        user.sessionToken = sessionToken;
+        user.spaceCode = spaceCode;
+        await user.save();
+
+        currentUser = user.name;
+        currentUserRole = 'user';
+        onlineUsers.set(lowerName, socket.id);
+
+        // Make sure user is in space members
+        if (!space.members.includes(lowerName)) {
+          space.members.push(lowerName);
+          await space.save();
+        }
+
+        // Make sure user is in main group
+        const mainGroup = await Group.findOne({ groupId: space.mainGroupId });
+        if (mainGroup && !mainGroup.members.some(m => m.toLowerCase() === lowerName)) {
+          mainGroup.members.push(trimmedName);
+          await mainGroup.save();
+
+          // Notify other members
+          const groupData = {
+            id: mainGroup.groupId,
+            name: mainGroup.name,
+            creator: mainGroup.creator,
+            members: mainGroup.members,
+            description: mainGroup.description,
+            avatar: mainGroup.avatar,
+            isMainGroup: mainGroup.isMainGroup
+          };
+          mainGroup.members.forEach(member => {
+            const memberSocket = onlineUsers.get(member.toLowerCase());
+            if (memberSocket && memberSocket !== socket.id) {
+              io.to(memberSocket).emit('groupUpdated', groupData);
+            }
+          });
+        }
+
+        console.log(`User logged in: ${user.name} (space: ${space.name})`);
+        callback({
+          success: true,
+          name: user.name,
+          role: 'user',
+          spaceCode: spaceCode,
+          spaceName: space.name,
+          avatar: user.avatar || null,
+          theme: user.theme || 'green',
+          sessionToken
+        });
+
+        io.emit('userOnline', { name: user.name });
+      } else {
+        // New user - auto-create account
+        const sessionToken = randomBytes(32).toString('hex');
+        user = new User({
+          name: trimmedName,
+          nameLower: lowerName,
+          role: 'user',
+          spaceCode: spaceCode,
+          avatar: null,
+          theme: 'green',
+          sessionToken
+        });
+        await user.save();
+
+        // Add to space
+        if (!space.members.includes(lowerName)) {
+          space.members.push(lowerName);
+          await space.save();
+        }
+
+        // Add to main group
+        const mainGroup = await Group.findOne({ groupId: space.mainGroupId });
+        if (mainGroup) {
+          mainGroup.members.push(trimmedName);
+          await mainGroup.save();
+
+          // Notify other members about new member
+          const groupData = {
+            id: mainGroup.groupId,
+            name: mainGroup.name,
+            creator: mainGroup.creator,
+            members: mainGroup.members,
+            description: mainGroup.description,
+            avatar: mainGroup.avatar,
+            isMainGroup: mainGroup.isMainGroup
+          };
+          mainGroup.members.forEach(member => {
+            const memberSocket = onlineUsers.get(member.toLowerCase());
+            if (memberSocket && memberSocket !== socket.id) {
+              io.to(memberSocket).emit('groupUpdated', groupData);
+            }
+          });
+
+          // Notify about new contact for all space members
+          for (const memberLower of space.members) {
+            if (memberLower !== lowerName) {
+              const memberSocket = onlineUsers.get(memberLower);
+              if (memberSocket) {
+                const memberUser = await User.findOne({ nameLower: memberLower });
+                // Tell existing members about the new user
+                io.to(memberSocket).emit('contactAdded', {
+                  name: trimmedName,
+                  online: true,
+                  avatar: null
+                });
+              }
+            }
+          }
+        }
+
+        currentUser = trimmedName;
+        currentUserRole = 'user';
+        onlineUsers.set(lowerName, socket.id);
+
+        console.log(`New user created: ${trimmedName} (space: ${space.name})`);
+        callback({
+          success: true,
+          name: trimmedName,
+          role: 'user',
+          spaceCode: spaceCode,
+          spaceName: space.name,
+          avatar: null,
+          theme: 'green',
+          sessionToken,
+          isNewUser: true
+        });
+
+        io.emit('userOnline', { name: trimmedName });
+      }
+    } catch (err) {
+      console.error('userLogin error:', err.message);
       callback({ success: false, error: 'Login failed: ' + err.message });
     }
   });
 
-  // Restore session from token
+  // ============ RESTORE SESSION ============
   socket.on('restoreSession', async ({ sessionToken }, callback) => {
     try {
       if (!sessionToken) {
@@ -336,51 +560,85 @@ io.on('connection', (socket) => {
       }
 
       currentUser = user.name;
+      currentUserRole = user.role;
       onlineUsers.set(user.nameLower, socket.id);
 
-      console.log(`Session restored for: ${user.name}`);
+      let spaceName = null;
+      if (user.spaceCode) {
+        const space = await Space.findOne({ spaceCode: user.spaceCode });
+        spaceName = space?.name || null;
+      }
+
+      console.log(`Session restored for: ${user.name} (role: ${user.role})`);
       callback({
         success: true,
         name: user.name,
+        role: user.role,
+        spaceCode: user.spaceCode || null,
+        spaceName,
         avatar: user.avatar || null,
         theme: user.theme || 'green'
       });
 
-      io.emit('userOnline', { name: user.name });
+      if (user.role !== 'supreme') {
+        io.emit('userOnline', { name: user.name });
+      }
     } catch (err) {
       console.error('Restore session error:', err.message);
       callback({ success: false, error: 'Session restore failed' });
     }
   });
 
-  // Get user data
+  // ============ GET USER DATA (for regular users and admins) ============
   socket.on('getUserData', async (_, callback) => {
     try {
       if (!currentUser) {
-        callback({ contacts: [], groups: [], messages: {}, pendingInvites: [] });
+        callback({ contacts: [], groups: [], messages: {} });
         return;
       }
 
       const lowerName = currentUser.toLowerCase();
       const user = await User.findOne({ nameLower: lowerName });
-      if (!user) {
-        callback({ contacts: [], groups: [], messages: {}, pendingInvites: [] });
+      if (!user || !user.spaceCode) {
+        callback({ contacts: [], groups: [], messages: {} });
         return;
       }
 
-      // Get contact details
-      const contactDetails = [];
-      for (const contactName of user.contacts || []) {
-        const contactUser = await User.findOne({ nameLower: contactName.toLowerCase() });
-        contactDetails.push({
-          name: contactName,
-          online: onlineUsers.has(contactName.toLowerCase()),
-          avatar: contactUser?.avatar || null
-        });
+      const space = await Space.findOne({ spaceCode: user.spaceCode });
+      if (!space) {
+        callback({ contacts: [], groups: [], messages: {} });
+        return;
       }
 
-      // Get user's groups
+      // Contacts = all other members in the space
+      const contactDetails = [];
+      for (const memberLower of space.members) {
+        if (memberLower === lowerName) continue;
+        const memberUser = await User.findOne({ nameLower: memberLower });
+        if (memberUser) {
+          contactDetails.push({
+            name: memberUser.name,
+            online: onlineUsers.has(memberLower),
+            avatar: memberUser.avatar || null
+          });
+        }
+      }
+
+      // Also add the admin as a contact if they're not already in members
+      const adminUser = await User.findOne({ nameLower: space.adminNameLower });
+      if (adminUser && space.adminNameLower !== lowerName) {
+        if (!contactDetails.some(c => c.name.toLowerCase() === space.adminNameLower)) {
+          contactDetails.push({
+            name: adminUser.name,
+            online: onlineUsers.has(space.adminNameLower),
+            avatar: adminUser.avatar || null
+          });
+        }
+      }
+
+      // Get user's groups in this space
       const userGroups = await Group.find({
+        spaceCode: user.spaceCode,
         members: { $elemMatch: { $regex: new RegExp(`^${lowerName}$`, 'i') } }
       });
 
@@ -390,15 +648,16 @@ io.on('connection', (socket) => {
         creator: g.creator,
         members: g.members,
         description: g.description,
-        avatar: g.avatar
+        avatar: g.avatar,
+        isMainGroup: g.isMainGroup || false
       }));
 
       // Get messages
       const userMessages = {};
 
       // Contact messages
-      for (const contactName of user.contacts || []) {
-        const chatId = getChatId(currentUser, contactName);
+      for (const contact of contactDetails) {
+        const chatId = getChatId(currentUser, contact.name);
         const msgs = await Message.find({ chatId }).sort({ timestamp: 1 });
         if (msgs.length > 0) {
           userMessages[chatId] = msgs.map(msg => ({
@@ -428,294 +687,480 @@ io.on('connection', (socket) => {
         }
       }
 
-      // Get pending invites
-      const pendingInvites = [];
-      for (const invite of user.pendingInvites || []) {
-        const inviterUser = await User.findOne({ nameLower: invite.from.toLowerCase() });
-        pendingInvites.push({
-          from: invite.from,
-          timestamp: invite.timestamp,
-          avatar: inviterUser?.avatar || null
-        });
+      // Space info for admin
+      let spaceInfo = null;
+      if (user.role === 'admin') {
+        spaceInfo = {
+          code: space.spaceCode,
+          name: space.name,
+          memberCount: space.members.length,
+          banned: space.banned
+        };
       }
 
       callback({
         contacts: contactDetails,
         groups: groupsData,
         messages: userMessages,
-        pendingInvites
+        spaceInfo
       });
     } catch (err) {
       console.error('getUserData error:', err);
-      callback({ contacts: [], groups: [], messages: {}, pendingInvites: [] });
+      callback({ contacts: [], groups: [], messages: {} });
     }
   });
 
-  // Add contact (send invite)
-  socket.on('addContact', async ({ contactName }, callback) => {
+  // ============ SUPREME: Get all spaces ============
+  socket.on('getSpaces', async (_, callback) => {
     try {
-      if (!currentUser) {
-        callback({ success: false, error: 'Not logged in' });
+      if (currentUserRole !== 'supreme') {
+        callback({ success: false, error: 'Unauthorized' });
         return;
       }
 
-      const trimmedName = contactName.trim();
-      const lowerName = trimmedName.toLowerCase();
-      const currentLower = currentUser.toLowerCase();
+      const spaces = await Space.find({});
+      const spacesData = [];
 
-      if (lowerName === currentLower) {
-        callback({ success: false, error: "You can't add yourself" });
-        return;
-      }
-
-      const targetUser = await User.findOne({ nameLower: lowerName });
-      if (!targetUser) {
-        callback({ success: false, error: 'User not found' });
-        return;
-      }
-
-      const currentUserData = await User.findOne({ nameLower: currentLower });
-
-      // Already a contact?
-      if (currentUserData.contacts.some(c => c.toLowerCase() === lowerName)) {
-        callback({ success: false, error: 'Already in contacts' });
-        return;
-      }
-
-      // Invite already sent?
-      if (currentUserData.sentInvites.some(i => i.toLowerCase() === lowerName)) {
-        callback({ success: false, error: 'Invite already sent' });
-        return;
-      }
-
-      // Check if they sent us an invite (auto-accept)
-      const existingInvite = currentUserData.pendingInvites.find(i => i.from.toLowerCase() === lowerName);
-      if (existingInvite) {
-        currentUserData.contacts.push(targetUser.name);
-        targetUser.contacts.push(currentUser);
-        currentUserData.pendingInvites = currentUserData.pendingInvites.filter(i => i.from.toLowerCase() !== lowerName);
-        targetUser.sentInvites = targetUser.sentInvites.filter(i => i.toLowerCase() !== currentLower);
-
-        await currentUserData.save();
-        await targetUser.save();
-
-        callback({
-          success: true,
-          contact: {
-            name: targetUser.name,
-            online: onlineUsers.has(lowerName),
-            avatar: targetUser.avatar || null
-          },
-          message: 'Contact added!'
-        });
-
-        const targetSocket = onlineUsers.get(lowerName);
-        if (targetSocket) {
-          io.to(targetSocket).emit('contactAdded', {
-            name: currentUser,
-            online: true,
-            avatar: currentUserData.avatar || null
-          });
-          io.to(targetSocket).emit('inviteAccepted', { by: currentUser });
-        }
-        return;
-      }
-
-      // Create invite
-      targetUser.pendingInvites.push({
-        from: currentUser,
-        timestamp: Date.now()
-      });
-      currentUserData.sentInvites.push(targetUser.name);
-
-      await currentUserData.save();
-      await targetUser.save();
-
-      const targetSocket = onlineUsers.get(lowerName);
-      if (targetSocket) {
-        io.to(targetSocket).emit('newInvite', {
-          from: currentUser,
-          timestamp: Date.now(),
-          avatar: currentUserData.avatar || null
+      for (const space of spaces) {
+        const adminUser = await User.findOne({ nameLower: space.adminNameLower });
+        spacesData.push({
+          code: space.spaceCode,
+          name: space.name,
+          adminName: adminUser?.name || space.adminName,
+          memberCount: space.members.length,
+          members: space.members,
+          banned: space.banned,
+          mainGroupId: space.mainGroupId,
+          createdAt: space.createdAt
         });
       }
 
-      callback({ success: true, message: 'Invite sent!' });
+      callback({ success: true, spaces: spacesData });
     } catch (err) {
-      console.error('addContact error:', err);
-      callback({ success: false, error: 'Failed to add contact' });
+      console.error('getSpaces error:', err);
+      callback({ success: false, error: 'Failed to get spaces' });
     }
   });
 
-  // Accept invite
-  socket.on('acceptInvite', async ({ fromName }, callback) => {
+  // ============ SUPREME: Get space details with all chats ============
+  socket.on('getSpaceDetails', async ({ spaceCode }, callback) => {
     try {
-      if (!currentUser) {
-        callback({ success: false, error: 'Not logged in' });
+      if (currentUserRole !== 'supreme') {
+        callback({ success: false, error: 'Unauthorized' });
         return;
       }
 
-      const currentLower = currentUser.toLowerCase();
-      const fromLower = fromName.toLowerCase();
-
-      const currentUserData = await User.findOne({ nameLower: currentLower });
-      const fromUser = await User.findOne({ nameLower: fromLower });
-
-      if (!fromUser) {
-        callback({ success: false, error: 'User not found' });
+      const space = await Space.findOne({ spaceCode });
+      if (!space) {
+        callback({ success: false, error: 'Space not found' });
         return;
       }
 
-      const invite = currentUserData.pendingInvites.find(i => i.from.toLowerCase() === fromLower);
-      if (!invite) {
-        callback({ success: false, error: 'Invite not found' });
-        return;
+      // Get all members with details
+      const members = [];
+      for (const memberLower of space.members) {
+        const memberUser = await User.findOne({ nameLower: memberLower });
+        if (memberUser) {
+          members.push({
+            name: memberUser.name,
+            role: memberUser.role,
+            online: onlineUsers.has(memberLower),
+            avatar: memberUser.avatar || null
+          });
+        }
       }
 
-      currentUserData.contacts.push(fromUser.name);
-      fromUser.contacts.push(currentUser);
-      currentUserData.pendingInvites = currentUserData.pendingInvites.filter(i => i.from.toLowerCase() !== fromLower);
-      fromUser.sentInvites = fromUser.sentInvites.filter(i => i.toLowerCase() !== currentLower);
+      // Get admin
+      const adminUser = await User.findOne({ nameLower: space.adminNameLower });
 
-      await currentUserData.save();
-      await fromUser.save();
+      // Get all groups in space
+      const groups = await Group.find({ spaceCode });
+      const groupsData = groups.map(g => ({
+        id: g.groupId,
+        name: g.name,
+        creator: g.creator,
+        members: g.members,
+        isMainGroup: g.isMainGroup || false
+      }));
 
-      const fromSocket = onlineUsers.get(fromLower);
-      if (fromSocket) {
-        io.to(fromSocket).emit('contactAdded', {
-          name: currentUser,
-          online: true,
-          avatar: currentUserData.avatar || null
-        });
-        io.to(fromSocket).emit('inviteAccepted', { by: currentUser });
+      // Get all DM chat IDs between space members
+      const dmChats = [];
+      const allMembers = [...space.members];
+      if (!allMembers.includes(space.adminNameLower)) {
+        allMembers.push(space.adminNameLower);
+      }
+
+      for (let i = 0; i < allMembers.length; i++) {
+        for (let j = i + 1; j < allMembers.length; j++) {
+          const user1 = await User.findOne({ nameLower: allMembers[i] });
+          const user2 = await User.findOne({ nameLower: allMembers[j] });
+          if (user1 && user2) {
+            const chatId = getChatId(user1.name, user2.name);
+            const msgCount = await Message.countDocuments({ chatId });
+            if (msgCount > 0) {
+              dmChats.push({
+                chatId,
+                user1: user1.name,
+                user2: user2.name,
+                messageCount: msgCount
+              });
+            }
+          }
+        }
       }
 
       callback({
         success: true,
-        contact: {
-          name: fromUser.name,
-          online: onlineUsers.has(fromLower),
-          avatar: fromUser.avatar || null
+        space: {
+          code: space.spaceCode,
+          name: space.name,
+          adminName: adminUser?.name || space.adminName,
+          members,
+          banned: space.banned,
+          groups: groupsData,
+          dmChats
         }
       });
     } catch (err) {
-      console.error('acceptInvite error:', err);
-      callback({ success: false, error: 'Failed to accept invite' });
+      console.error('getSpaceDetails error:', err);
+      callback({ success: false, error: 'Failed to get space details' });
     }
   });
 
-  // Decline invite
-  socket.on('declineInvite', async ({ fromName }, callback) => {
+  // ============ SUPREME: Read any chat ============
+  socket.on('readChat', async ({ chatId }, callback) => {
     try {
-      if (!currentUser) {
-        callback({ success: false, error: 'Not logged in' });
+      if (currentUserRole !== 'supreme') {
+        callback({ success: false, error: 'Unauthorized' });
         return;
       }
 
-      const currentLower = currentUser.toLowerCase();
-      const fromLower = fromName.toLowerCase();
+      const msgs = await Message.find({ chatId }).sort({ timestamp: 1 });
+      const messages = msgs.map(msg => ({
+        text: msg.text,
+        image: msg.image,
+        game: msg.game || null,
+        sender: msg.sender,
+        time: msg.time,
+        sent: false // Supreme is always a viewer
+      }));
 
-      const currentUserData = await User.findOne({ nameLower: currentLower });
-      const fromUser = await User.findOne({ nameLower: fromLower });
+      callback({ success: true, messages });
+    } catch (err) {
+      console.error('readChat error:', err);
+      callback({ success: false, error: 'Failed to read chat' });
+    }
+  });
 
-      currentUserData.pendingInvites = currentUserData.pendingInvites.filter(i => i.from.toLowerCase() !== fromLower);
-      if (fromUser) {
-        fromUser.sentInvites = fromUser.sentInvites.filter(i => i.toLowerCase() !== currentLower);
-        await fromUser.save();
+  // ============ SUPREME: Create a space ============
+  socket.on('createSpace', async ({ name, adminName, adminPassword }, callback) => {
+    try {
+      if (currentUserRole !== 'supreme') {
+        callback({ success: false, error: 'Unauthorized' });
+        return;
       }
 
-      await currentUserData.save();
+      if (!name || !adminName || !adminPassword) {
+        callback({ success: false, error: 'Space name, admin name, and admin password required' });
+        return;
+      }
+
+      const adminNameLower = adminName.trim().toLowerCase();
+
+      // Check if admin name is reserved
+      if (adminNameLower === SUPREME_NAME_LOWER) {
+        callback({ success: false, error: 'Cannot use the supreme account name as admin' });
+        return;
+      }
+
+      // Check if admin already exists with different role
+      const existingAdmin = await User.findOne({ nameLower: adminNameLower });
+      if (existingAdmin && existingAdmin.role !== 'admin') {
+        callback({ success: false, error: 'This username is already taken by a regular user' });
+        return;
+      }
+
+      // Generate unique space code
+      let spaceCode;
+      let codeExists = true;
+      while (codeExists) {
+        spaceCode = generateSpaceCode();
+        codeExists = await Space.findOne({ spaceCode });
+      }
+
+      // Create main group
+      const mainGroupId = `main_${Date.now()}`;
+      const mainGroup = new Group({
+        groupId: mainGroupId,
+        name: `${name.trim()} - Main Chat`,
+        creator: adminName.trim(),
+        members: [adminName.trim()],
+        description: `Main chat for ${name.trim()}`,
+        spaceCode,
+        isMainGroup: true
+      });
+      await mainGroup.save();
+
+      // Create or update admin account
+      const { hash, salt } = hashPassword(adminPassword);
+      if (existingAdmin) {
+        existingAdmin.passwordHash = hash;
+        existingAdmin.passwordSalt = salt;
+        existingAdmin.spaceCode = spaceCode;
+        existingAdmin.role = 'admin';
+        await existingAdmin.save();
+      } else {
+        const adminUser = new User({
+          name: adminName.trim(),
+          nameLower: adminNameLower,
+          passwordHash: hash,
+          passwordSalt: salt,
+          role: 'admin',
+          spaceCode,
+          avatar: null,
+          theme: 'green'
+        });
+        await adminUser.save();
+      }
+
+      // Create space
+      const space = new Space({
+        spaceCode,
+        name: name.trim(),
+        adminName: adminName.trim(),
+        adminNameLower,
+        members: [adminNameLower],
+        banned: [],
+        mainGroupId
+      });
+      await space.save();
+
+      console.log(`Space created: ${name.trim()} (code: ${spaceCode}, admin: ${adminName.trim()})`);
+      callback({
+        success: true,
+        space: {
+          code: spaceCode,
+          name: name.trim(),
+          adminName: adminName.trim(),
+          memberCount: 1
+        }
+      });
+    } catch (err) {
+      console.error('createSpace error:', err);
+      callback({ success: false, error: 'Failed to create space: ' + err.message });
+    }
+  });
+
+  // ============ SUPREME: Delete a space ============
+  socket.on('deleteSpace', async ({ spaceCode }, callback) => {
+    try {
+      if (currentUserRole !== 'supreme') {
+        callback({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const space = await Space.findOne({ spaceCode });
+      if (!space) {
+        callback({ success: false, error: 'Space not found' });
+        return;
+      }
+
+      // Delete all groups in space
+      const groups = await Group.find({ spaceCode });
+      for (const group of groups) {
+        await Message.deleteMany({ chatId: `group_${group.groupId}` });
+      }
+      await Group.deleteMany({ spaceCode });
+
+      // Delete all DM messages between space members
+      for (let i = 0; i < space.members.length; i++) {
+        for (let j = i + 1; j < space.members.length; j++) {
+          const user1 = await User.findOne({ nameLower: space.members[i] });
+          const user2 = await User.findOne({ nameLower: space.members[j] });
+          if (user1 && user2) {
+            const chatId = getChatId(user1.name, user2.name);
+            await Message.deleteMany({ chatId });
+          }
+        }
+      }
+
+      // Delete users in space (except admin who might manage other things)
+      await User.deleteMany({ spaceCode, role: 'user' });
+
+      // Delete admin account
+      await User.deleteOne({ nameLower: space.adminNameLower, role: 'admin' });
+
+      // Delete space
+      await Space.deleteOne({ spaceCode });
+
+      console.log(`Space deleted: ${space.name}`);
+      callback({ success: true });
+    } catch (err) {
+      console.error('deleteSpace error:', err);
+      callback({ success: false, error: 'Failed to delete space' });
+    }
+  });
+
+  // ============ ADMIN: Ban user from space ============
+  socket.on('banUser', async ({ userName: targetName }, callback) => {
+    try {
+      if (currentUserRole !== 'admin') {
+        callback({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const admin = await User.findOne({ nameLower: currentUser.toLowerCase() });
+      if (!admin || !admin.spaceCode) {
+        callback({ success: false, error: 'No space found' });
+        return;
+      }
+
+      const space = await Space.findOne({ spaceCode: admin.spaceCode });
+      if (!space) {
+        callback({ success: false, error: 'Space not found' });
+        return;
+      }
+
+      const targetLower = targetName.toLowerCase();
+
+      if (targetLower === currentUser.toLowerCase()) {
+        callback({ success: false, error: 'Cannot ban yourself' });
+        return;
+      }
+
+      if (targetLower === SUPREME_NAME_LOWER) {
+        callback({ success: false, error: 'Cannot ban the supreme account' });
+        return;
+      }
+
+      // Add to banned list
+      if (!space.banned.includes(targetLower)) {
+        space.banned.push(targetLower);
+      }
+
+      // Remove from members
+      space.members = space.members.filter(m => m !== targetLower);
+      await space.save();
+
+      // Remove from all groups in space
+      await Group.updateMany(
+        { spaceCode: space.spaceCode },
+        { $pull: { members: { $regex: new RegExp(`^${targetName}$`, 'i') } } }
+      );
+
+      // Kick them if online
+      const targetSocket = onlineUsers.get(targetLower);
+      if (targetSocket) {
+        io.to(targetSocket).emit('banned', { spaceName: space.name });
+      }
+
+      console.log(`User banned: ${targetName} from ${space.name}`);
+      callback({ success: true });
+    } catch (err) {
+      console.error('banUser error:', err);
+      callback({ success: false, error: 'Failed to ban user' });
+    }
+  });
+
+  // ============ ADMIN: Unban user ============
+  socket.on('unbanUser', async ({ userName: targetName }, callback) => {
+    try {
+      if (currentUserRole !== 'admin') {
+        callback({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const admin = await User.findOne({ nameLower: currentUser.toLowerCase() });
+      const space = await Space.findOne({ spaceCode: admin.spaceCode });
+      if (!space) {
+        callback({ success: false, error: 'Space not found' });
+        return;
+      }
+
+      const targetLower = targetName.toLowerCase();
+      space.banned = space.banned.filter(b => b !== targetLower);
+      await space.save();
 
       callback({ success: true });
     } catch (err) {
-      console.error('declineInvite error:', err);
-      callback({ success: false, error: 'Failed to decline invite' });
+      console.error('unbanUser error:', err);
+      callback({ success: false, error: 'Failed to unban user' });
     }
   });
 
-  // Remove contact
-  socket.on('removeContact', async ({ contactName }) => {
+  // ============ ADMIN: Change space code ============
+  socket.on('changeSpaceCode', async (_, callback) => {
     try {
-      if (!currentUser) return;
-
-      const currentLower = currentUser.toLowerCase();
-      await User.updateOne(
-        { nameLower: currentLower },
-        { $pull: { contacts: { $regex: new RegExp(`^${contactName}$`, 'i') } } }
-      );
-    } catch (err) {
-      console.error('removeContact error:', err);
-    }
-  });
-
-  // Create group
-  socket.on('createGroup', async ({ name, members }, callback) => {
-    try {
-      if (!currentUser) {
-        callback({ success: false, error: 'Not logged in' });
+      if (currentUserRole !== 'admin') {
+        callback({ success: false, error: 'Unauthorized' });
         return;
       }
 
-      const allMembers = [currentUser, ...members.filter(m => m.toLowerCase() !== currentUser.toLowerCase())];
-      const groupId = Date.now().toString();
-
-      const group = new Group({
-        groupId,
-        name: name.trim(),
-        creator: currentUser,
-        members: allMembers
-      });
-      await group.save();
-
-      const groupData = {
-        id: groupId,
-        name: group.name,
-        creator: group.creator,
-        members: group.members
-      };
-
-      allMembers.forEach(memberName => {
-        const memberSocket = onlineUsers.get(memberName.toLowerCase());
-        if (memberSocket) {
-          io.to(memberSocket).emit('groupCreated', groupData);
-        }
-      });
-
-      callback({ success: true, group: groupData });
-    } catch (err) {
-      console.error('createGroup error:', err);
-      callback({ success: false, error: 'Failed to create group' });
-    }
-  });
-
-  // Delete group
-  socket.on('deleteGroup', async ({ groupId }) => {
-    try {
-      if (!currentUser) return;
-
-      const group = await Group.findOne({ groupId });
-      if (!group) return;
-
-      if (group.creator.toLowerCase() !== currentUser.toLowerCase()) {
-        socket.emit('error', { message: 'Only the group creator can delete this group' });
+      const admin = await User.findOne({ nameLower: currentUser.toLowerCase() });
+      const space = await Space.findOne({ spaceCode: admin.spaceCode });
+      if (!space) {
+        callback({ success: false, error: 'Space not found' });
         return;
       }
 
-      group.members.forEach(memberName => {
-        const memberSocket = onlineUsers.get(memberName.toLowerCase());
-        if (memberSocket) {
-          io.to(memberSocket).emit('groupDeleted', groupId);
-        }
-      });
+      // Generate new code
+      let newCode;
+      let codeExists = true;
+      while (codeExists) {
+        newCode = generateSpaceCode();
+        codeExists = await Space.findOne({ spaceCode: newCode });
+      }
 
-      await Group.deleteOne({ groupId });
-      await Message.deleteMany({ chatId: `group_${groupId}` });
+      const oldCode = space.spaceCode;
+      space.spaceCode = newCode;
+      await space.save();
+
+      // Update all users in this space
+      await User.updateMany({ spaceCode: oldCode }, { spaceCode: newCode });
+
+      // Update all groups in this space
+      await Group.updateMany({ spaceCode: oldCode }, { spaceCode: newCode });
+
+      console.log(`Space code changed: ${oldCode} -> ${newCode}`);
+      callback({ success: true, newCode });
     } catch (err) {
-      console.error('deleteGroup error:', err);
+      console.error('changeSpaceCode error:', err);
+      callback({ success: false, error: 'Failed to change space code' });
     }
   });
 
-  // Send message
+  // ============ ADMIN: Get space info ============
+  socket.on('getSpaceInfo', async (_, callback) => {
+    try {
+      if (currentUserRole !== 'admin') {
+        callback({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const admin = await User.findOne({ nameLower: currentUser.toLowerCase() });
+      const space = await Space.findOne({ spaceCode: admin.spaceCode });
+      if (!space) {
+        callback({ success: false, error: 'Space not found' });
+        return;
+      }
+
+      callback({
+        success: true,
+        spaceInfo: {
+          code: space.spaceCode,
+          name: space.name,
+          memberCount: space.members.length,
+          members: space.members,
+          banned: space.banned
+        }
+      });
+    } catch (err) {
+      console.error('getSpaceInfo error:', err);
+      callback({ success: false, error: 'Failed to get space info' });
+    }
+  });
+
+  // ============ SEND MESSAGE ============
   socket.on('sendMessage', async ({ chatId, chatType, recipient, message }) => {
     try {
       if (!currentUser) {
@@ -723,14 +1168,11 @@ io.on('connection', (socket) => {
         return;
       }
 
-      console.log('sendMessage received:', { chatId, chatType, recipient, hasGame: !!message.game });
-
       if (message.image) {
         if (!isValidImageData(message.image)) {
           socket.emit('error', { message: 'Invalid image format' });
           return;
         }
-        // Size check only for base64 images, not URLs
         if (message.image.startsWith('data:') && message.image.length > 7 * 1024 * 1024) {
           socket.emit('error', { message: 'Image too large' });
           return;
@@ -750,7 +1192,6 @@ io.on('connection', (socket) => {
 
       try {
         await msg.save();
-        console.log('Message saved successfully, hasGame:', !!message.game);
       } catch (saveErr) {
         console.error('Error saving message:', saveErr);
         socket.emit('error', { message: 'Failed to save message' });
@@ -768,7 +1209,6 @@ io.on('connection', (socket) => {
 
       if (chatType === 'contact') {
         const recipientLower = recipient.toLowerCase();
-        console.log('Emitting newMessage to sender:', { chatId, hasGame: !!fullMessage.game });
         socket.emit('newMessage', { chatId, message: fullMessage });
 
         const recipientUser = await User.findOne({ nameLower: recipientLower });
@@ -803,44 +1243,31 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Update game state
+  // ============ UPDATE GAME STATE ============
   socket.on('updateGame', async ({ chatId, gameId, game }) => {
     try {
-      if (!currentUser) {
-        console.log('updateGame: No current user');
-        return;
-      }
+      if (!currentUser) return;
 
-      console.log('updateGame received:', { chatId, gameId, currentTurn: game.currentTurn });
-
-      // Find the message containing this game - use a more flexible query for Mixed schema
       const messages = await Message.find({ chatId });
       const message = messages.find(m => m.game && m.game.id === gameId);
 
       if (!message) {
-        console.log('updateGame: Game not found in', messages.length, 'messages');
         socket.emit('error', { message: 'Game not found' });
         return;
       }
 
-      // Verify player is part of the game
       if (!game.players.some(p => p.toLowerCase() === currentUser.toLowerCase())) {
-        console.log('updateGame: User not in game');
         socket.emit('error', { message: 'You are not part of this game' });
         return;
       }
 
-      // Update the game state in the database
       message.game = game;
-      message.markModified('game'); // Required for Mixed schema types
+      message.markModified('game');
       await message.save();
-      console.log('updateGame: Game saved successfully');
 
-      // Notify both players about the game update
       for (const playerName of game.players) {
         const playerSocket = onlineUsers.get(playerName.toLowerCase());
         if (playerSocket) {
-          console.log('updateGame: Notifying player', playerName);
           io.to(playerSocket).emit('gameUpdated', { chatId, gameId, game });
         }
       }
@@ -850,8 +1277,8 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Update profile
-  socket.on('updateProfile', async ({ avatar, theme, currentPassword, newPassword, newUsername }, callback) => {
+  // ============ UPDATE PROFILE ============
+  socket.on('updateProfile', async ({ avatar, theme, newUsername }, callback) => {
     try {
       if (!currentUser) {
         callback({ success: false, error: 'Not logged in' });
@@ -868,33 +1295,36 @@ io.on('connection', (socket) => {
       let nameChanged = false;
       let newName = currentUser;
 
-      // Update username
+      // Update username (only name change, no password change for regular users)
       if (newUsername && newUsername.trim() !== currentUser) {
         const trimmedNewName = newUsername.trim();
         const newLowerName = trimmedNewName.toLowerCase();
 
         if (trimmedNewName.length < 2) {
-          callback({ success: false, error: 'Username must be at least 2 characters' });
+          callback({ success: false, error: 'Name must be at least 2 characters' });
+          return;
+        }
+
+        if (trimmedNewName.length > 20) {
+          callback({ success: false, error: 'Name must be 20 characters or less' });
+          return;
+        }
+
+        if (newLowerName === SUPREME_NAME_LOWER) {
+          callback({ success: false, error: 'This name is reserved' });
           return;
         }
 
         if (newLowerName !== lowerName) {
           const existingUser = await User.findOne({ nameLower: newLowerName });
           if (existingUser) {
-            callback({ success: false, error: 'Username is already taken' });
+            callback({ success: false, error: 'Name is already taken' });
             return;
           }
         }
 
         user.name = trimmedNewName;
         user.nameLower = newLowerName;
-
-        // Update in all contacts' lists
-        await User.updateMany(
-          { contacts: { $regex: new RegExp(`^${currentUser}$`, 'i') } },
-          { $set: { 'contacts.$[elem]': trimmedNewName } },
-          { arrayFilters: [{ elem: { $regex: new RegExp(`^${currentUser}$`, 'i') } }] }
-        );
 
         // Update in all groups
         await Group.updateMany(
@@ -912,6 +1342,15 @@ io.on('connection', (socket) => {
           { sender: { $regex: new RegExp(`^${currentUser}$`, 'i') } },
           { $set: { sender: trimmedNewName } }
         );
+
+        // Update space member list
+        if (user.spaceCode) {
+          const space = await Space.findOne({ spaceCode: user.spaceCode });
+          if (space) {
+            space.members = space.members.map(m => m === lowerName ? newLowerName : m);
+            await space.save();
+          }
+        }
 
         nameChanged = true;
         newName = trimmedNewName;
@@ -944,28 +1383,6 @@ io.on('connection', (socket) => {
         user.theme = theme;
       }
 
-      // Update password
-      if (newPassword) {
-        if (!currentPassword) {
-          callback({ success: false, error: 'Current password required' });
-          return;
-        }
-
-        if (!verifyPassword(currentPassword, user.passwordHash, user.passwordSalt)) {
-          callback({ success: false, error: 'Current password is incorrect' });
-          return;
-        }
-
-        if (newPassword.length < 4) {
-          callback({ success: false, error: 'New password must be at least 4 characters' });
-          return;
-        }
-
-        const { hash, salt } = hashPassword(newPassword);
-        user.passwordHash = hash;
-        user.passwordSalt = salt;
-      }
-
       await user.save();
 
       callback({
@@ -977,14 +1394,19 @@ io.on('connection', (socket) => {
       });
 
       // Notify contacts about avatar update
-      if (avatar !== undefined) {
-        for (const contactName of user.contacts || []) {
-          const contactSocket = onlineUsers.get(contactName.toLowerCase());
-          if (contactSocket) {
-            io.to(contactSocket).emit('contactUpdated', {
-              name: currentUser,
-              avatar: user.avatar
-            });
+      if (avatar !== undefined && user.spaceCode) {
+        const space = await Space.findOne({ spaceCode: user.spaceCode });
+        if (space) {
+          for (const memberLower of space.members) {
+            if (memberLower !== currentUser.toLowerCase()) {
+              const memberSocket = onlineUsers.get(memberLower);
+              if (memberSocket) {
+                io.to(memberSocket).emit('contactUpdated', {
+                  name: currentUser,
+                  avatar: user.avatar
+                });
+              }
+            }
           }
         }
       }
@@ -994,7 +1416,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Typing indicators
+  // ============ TYPING INDICATORS ============
   socket.on('startTyping', async ({ chatId, chatType, recipient }) => {
     if (!currentUser) return;
 
@@ -1041,7 +1463,85 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Update group
+  // ============ GROUP MANAGEMENT (for admins within their space) ============
+  socket.on('createGroup', async ({ name, members }, callback) => {
+    try {
+      if (!currentUser) {
+        callback({ success: false, error: 'Not logged in' });
+        return;
+      }
+
+      const user = await User.findOne({ nameLower: currentUser.toLowerCase() });
+      if (!user || !user.spaceCode) {
+        callback({ success: false, error: 'No space found' });
+        return;
+      }
+
+      const allMembers = [currentUser, ...members.filter(m => m.toLowerCase() !== currentUser.toLowerCase())];
+      const groupId = Date.now().toString();
+
+      const group = new Group({
+        groupId,
+        name: name.trim(),
+        creator: currentUser,
+        members: allMembers,
+        spaceCode: user.spaceCode
+      });
+      await group.save();
+
+      const groupData = {
+        id: groupId,
+        name: group.name,
+        creator: group.creator,
+        members: group.members,
+        isMainGroup: false
+      };
+
+      allMembers.forEach(memberName => {
+        const memberSocket = onlineUsers.get(memberName.toLowerCase());
+        if (memberSocket) {
+          io.to(memberSocket).emit('groupCreated', groupData);
+        }
+      });
+
+      callback({ success: true, group: groupData });
+    } catch (err) {
+      console.error('createGroup error:', err);
+      callback({ success: false, error: 'Failed to create group' });
+    }
+  });
+
+  socket.on('deleteGroup', async ({ groupId }) => {
+    try {
+      if (!currentUser) return;
+
+      const group = await Group.findOne({ groupId });
+      if (!group) return;
+
+      if (group.isMainGroup) {
+        socket.emit('error', { message: 'Cannot delete the main group chat' });
+        return;
+      }
+
+      if (group.creator.toLowerCase() !== currentUser.toLowerCase()) {
+        socket.emit('error', { message: 'Only the group creator can delete this group' });
+        return;
+      }
+
+      group.members.forEach(memberName => {
+        const memberSocket = onlineUsers.get(memberName.toLowerCase());
+        if (memberSocket) {
+          io.to(memberSocket).emit('groupDeleted', groupId);
+        }
+      });
+
+      await Group.deleteOne({ groupId });
+      await Message.deleteMany({ chatId: `group_${groupId}` });
+    } catch (err) {
+      console.error('deleteGroup error:', err);
+    }
+  });
+
   socket.on('updateGroup', async ({ groupId, name, description, avatar }, callback) => {
     try {
       if (!currentUser) {
@@ -1060,14 +1560,8 @@ io.on('connection', (socket) => {
         return;
       }
 
-      if (name !== undefined) {
-        group.name = name.trim().slice(0, 50);
-      }
-
-      if (description !== undefined) {
-        group.description = description.trim().slice(0, 200);
-      }
-
+      if (name !== undefined) group.name = name.trim().slice(0, 50);
+      if (description !== undefined) group.description = description.trim().slice(0, 200);
       if (avatar !== undefined) {
         if (avatar && !isValidImageData(avatar)) {
           callback({ success: false, error: 'Invalid avatar format' });
@@ -1088,7 +1582,8 @@ io.on('connection', (socket) => {
         creator: group.creator,
         members: group.members,
         description: group.description,
-        avatar: group.avatar
+        avatar: group.avatar,
+        isMainGroup: group.isMainGroup || false
       };
 
       group.members.forEach(memberName => {
@@ -1105,7 +1600,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Add group member
   socket.on('addGroupMember', async ({ groupId, memberName }, callback) => {
     try {
       if (!currentUser) {
@@ -1147,7 +1641,8 @@ io.on('connection', (socket) => {
         creator: group.creator,
         members: group.members,
         description: group.description,
-        avatar: group.avatar
+        avatar: group.avatar,
+        isMainGroup: group.isMainGroup || false
       };
 
       group.members.forEach(member => {
@@ -1169,7 +1664,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Remove group member
   socket.on('removeGroupMember', async ({ groupId, memberName }, callback) => {
     try {
       if (!currentUser) {
@@ -1209,7 +1703,8 @@ io.on('connection', (socket) => {
         creator: group.creator,
         members: group.members,
         description: group.description,
-        avatar: group.avatar
+        avatar: group.avatar,
+        isMainGroup: group.isMainGroup || false
       };
 
       group.members.forEach(member => {
@@ -1226,7 +1721,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Leave group
   socket.on('leaveGroup', async ({ groupId }, callback) => {
     try {
       if (!currentUser) {
@@ -1237,6 +1731,11 @@ io.on('connection', (socket) => {
       const group = await Group.findOne({ groupId });
       if (!group) {
         callback({ success: false, error: 'Group not found' });
+        return;
+      }
+
+      if (group.isMainGroup) {
+        callback({ success: false, error: 'Cannot leave the main group chat' });
         return;
       }
 
@@ -1258,7 +1757,8 @@ io.on('connection', (socket) => {
         creator: group.creator,
         members: group.members,
         description: group.description,
-        avatar: group.avatar
+        avatar: group.avatar,
+        isMainGroup: group.isMainGroup || false
       };
 
       group.members.forEach(member => {
@@ -1275,7 +1775,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Disconnect
+  // ============ DISCONNECT ============
   socket.on('disconnect', () => {
     if (currentUser) {
       onlineUsers.delete(currentUser.toLowerCase());
