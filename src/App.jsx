@@ -206,6 +206,35 @@ function App() {
     }
   }, []);
 
+  // Poll server every 10 seconds to sync data
+  useEffect(() => {
+    if (!isLoggedIn || userRole === 'supreme') return;
+
+    const interval = setInterval(() => {
+      socket.emit('getUserData', null, (data) => {
+        if (data) {
+          setContacts(data.contacts || []);
+          setGroups(data.groups || []);
+          setMessages(data.messages || {});
+          if (data.spaceInfo) setSpaceInfo(data.spaceInfo);
+        }
+      });
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [isLoggedIn, userRole]);
+
+  // Poll spaces for supreme dashboard
+  useEffect(() => {
+    if (!isLoggedIn || userRole !== 'supreme') return;
+
+    const interval = setInterval(() => {
+      loadSpaces();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [isLoggedIn, userRole]);
+
   // Keep currentChatRef in sync
   useEffect(() => {
     currentChatRef.current = currentChat;
