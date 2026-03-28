@@ -637,6 +637,18 @@ io.on('connection', (socket) => {
         }
       }
 
+      // If user is admin, add supreme (William) as a contact
+      if (user.role === 'admin') {
+        const supremeUser = await User.findOne({ nameLower: SUPREME_NAME_LOWER });
+        if (supremeUser) {
+          contactDetails.push({
+            name: supremeUser.name,
+            online: onlineUsers.has(SUPREME_NAME_LOWER),
+            avatar: supremeUser.avatar || null
+          });
+        }
+      }
+
       // Get user's groups in this space
       const userGroups = await Group.find({
         spaceCode: user.spaceCode,
@@ -855,6 +867,50 @@ io.on('connection', (socket) => {
     } catch (err) {
       console.error('readChat error:', err);
       callback({ success: false, error: 'Failed to read chat' });
+    }
+  });
+
+  // ============ SUPREME: Get admin contacts and messages ============
+  socket.on('getSupremeContacts', async (_, callback) => {
+    try {
+      if (currentUserRole !== 'supreme') {
+        callback({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const admins = await User.find({ role: 'admin' });
+      const contacts = [];
+      const messages = {};
+
+      for (const admin of admins) {
+        const space = await Space.findOne({ adminNameLower: admin.nameLower });
+        contacts.push({
+          name: admin.name,
+          online: onlineUsers.has(admin.nameLower),
+          avatar: admin.avatar || null,
+          spaceName: space ? space.name : 'Unknown'
+        });
+
+        const chatId = getChatId(SUPREME_NAME, admin.name);
+        const msgs = await Message.find({ chatId }).sort({ timestamp: 1 });
+        if (msgs.length > 0) {
+          messages[chatId] = msgs.map(msg => ({
+            _id: msg._id,
+            text: msg.text,
+            image: msg.image,
+            game: msg.game || null,
+            sender: msg.sender,
+            time: msg.time,
+            sent: msg.sender?.toLowerCase() === SUPREME_NAME_LOWER,
+            seenBy: msg.seenBy || []
+          }));
+        }
+      }
+
+      callback({ success: true, contacts, messages });
+    } catch (err) {
+      console.error('getSupremeContacts error:', err);
+      callback({ success: false, error: 'Failed to get contacts' });
     }
   });
 

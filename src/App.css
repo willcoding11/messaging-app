@@ -3524,6 +3524,113 @@ body {
   margin-top: 2px;
 }
 
+/* Supreme DM Chat */
+.supreme-chat-active {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.supreme-chat-header {
+  padding: 15px 20px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.supreme-chat-header h3 {
+  margin: 0;
+  color: #fff;
+}
+
+.supreme-dm-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.supreme-dm-msg {
+  display: flex;
+  flex-direction: column;
+  max-width: 70%;
+}
+
+.supreme-dm-msg.sent {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.supreme-dm-msg.received {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.supreme-dm-bubble {
+  padding: 10px 14px;
+  border-radius: 16px;
+  font-size: 0.95rem;
+  word-break: break-word;
+}
+
+.supreme-dm-msg.sent .supreme-dm-bubble {
+  background: #00bcd4;
+  color: #000;
+  border-bottom-right-radius: 4px;
+}
+
+.supreme-dm-msg.received .supreme-dm-bubble {
+  background: #2a2a3e;
+  color: #e0e0e0;
+  border-bottom-left-radius: 4px;
+}
+
+.supreme-dm-time {
+  font-size: 0.65rem;
+  color: #666;
+  margin-top: 3px;
+  padding: 0 4px;
+}
+
+.supreme-dm-input {
+  display: flex;
+  gap: 10px;
+  padding: 15px;
+  border-top: 1px solid #333;
+}
+
+.supreme-dm-input input {
+  flex: 1;
+  padding: 12px 15px;
+  border: 1px solid #333;
+  border-radius: 25px;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.supreme-dm-input input:focus {
+  border-color: #00bcd4;
+}
+
+.supreme-dm-input button {
+  padding: 10px 20px;
+  background: #00bcd4;
+  color: #000;
+  border: none;
+  border-radius: 25px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.supreme-dm-input button:hover {
+  background: #00a5bb;
+}
+
 .modal-btn.danger {
   background: #dc3545;
   color: white;

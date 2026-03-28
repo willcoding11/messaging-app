@@ -129,6 +129,10 @@ function App() {
   const [createSpaceForm, setCreateSpaceForm] = useState({ name: '', adminName: '', adminPassword: '' });
   const [showCreateSpace, setShowCreateSpace] = useState(false);
   const [supremeError, setSupremeError] = useState('');
+  const [supremeContacts, setSupremeContacts] = useState([]);
+  const [supremeMessages, setSupremeMessages] = useState({});
+  const [supremeActiveChat, setSupremeActiveChat] = useState(null);
+  const [supremeMsgInput, setSupremeMsgInput] = useState('');
 
   const messagesEndRef = useRef(null);
   const currentChatRef = useRef(null);
@@ -303,6 +307,11 @@ function App() {
         ...prev,
         [chatId]: [...(prev[chatId] || []), message]
       }));
+      // Also update supreme messages if supreme is logged in
+      setSupremeMessages(prev => {
+        if (!prev[chatId] && !chatId.startsWith('dm_')) return prev;
+        return { ...prev, [chatId]: [...(prev[chatId] || []), message] };
+      });
       if (!message.sent && soundEnabledRef.current) {
         playNotificationSound();
       }
@@ -615,6 +624,12 @@ function App() {
         setAllSpaces(response.spaces);
       }
     });
+    socket.emit('getSupremeContacts', null, (response) => {
+      if (response.success) {
+        setSupremeContacts(response.contacts);
+        setSupremeMessages(response.messages);
+      }
+    });
   };
 
   const viewSpaceDetails = (spaceCode) => {
@@ -667,6 +682,29 @@ function App() {
         showToast(response.error, 'error');
       }
     });
+  };
+
+  // ============ SUPREME MESSAGING ============
+  const openSupremeChat = (admin) => {
+    const chatId = getChatId(admin.name);
+    setSupremeActiveChat({ id: chatId, name: admin.name, spaceName: admin.spaceName });
+    socket.emit('markSeen', { chatId, chatType: 'contact', recipient: admin.name });
+  };
+
+  const sendSupremeMessage = () => {
+    if (!supremeMsgInput.trim() || !supremeActiveChat) return;
+    const chatId = supremeActiveChat.id;
+    const message = {
+      text: supremeMsgInput.trim(),
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    socket.emit('sendMessage', {
+      chatId,
+      chatType: 'contact',
+      recipient: supremeActiveChat.name,
+      message
+    });
+    setSupremeMsgInput('');
   };
 
   // ============ ADMIN FUNCTIONS ============
@@ -1653,7 +1691,7 @@ function App() {
                 <div
                   key={space.code}
                   className={`supreme-space-item ${selectedSpace === space.code ? 'active' : ''}`}
-                  onClick={() => viewSpaceDetails(space.code)}
+                  onClick={() => { viewSpaceDetails(space.code); setSupremeActiveChat(null); }}
                 >
                   <div className="supreme-space-name">{space.name}</div>
                   <div className="supreme-space-meta">
@@ -1665,11 +1703,71 @@ function App() {
                 <div className="supreme-empty">No spaces yet. Create one to get started.</div>
               )}
             </div>
+
+            {/* Admin Messages */}
+            <div className="supreme-sidebar-header" style={{ marginTop: 10 }}>
+              <h3>Messages</h3>
+            </div>
+            <div className="supreme-space-list">
+              {supremeContacts.map(admin => (
+                <div
+                  key={admin.name}
+                  className={`supreme-space-item ${supremeActiveChat?.name === admin.name ? 'active' : ''}`}
+                  onClick={() => { openSupremeChat(admin); setSelectedSpace(null); setSpaceDetails(null); setShowCreateSpace(false); }}
+                >
+                  <div className="supreme-space-name">
+                    <span className={`supreme-status-dot ${admin.online ? 'online' : ''}`} style={{ marginRight: 6 }}></span>
+                    {admin.name}
+                  </div>
+                  <div className="supreme-space-meta">{admin.spaceName} admin</div>
+                </div>
+              ))}
+              {supremeContacts.length === 0 && (
+                <div className="supreme-empty">No admins yet</div>
+              )}
+            </div>
           </div>
 
-          {/* Space Details */}
+          {/* Space Details / Chat */}
           <div className="supreme-main">
-            {showCreateSpace ? (
+            {supremeActiveChat ? (
+              <div className="supreme-chat-active">
+                <div className="supreme-chat-header">
+                  <h3>{supremeActiveChat.name}</h3>
+                  <span className="supreme-space-meta">{supremeActiveChat.spaceName} admin</span>
+                </div>
+                <div className="supreme-messages supreme-dm-messages">
+                  {(supremeMessages[supremeActiveChat.id] || []).map((msg, idx) => (
+                    <div key={idx} className={`supreme-dm-msg ${msg.sent ? 'sent' : 'received'}`}>
+                      <div className="supreme-dm-bubble">
+                        {msg.image && <img src={msg.image} alt="Shared" className="message-image" />}
+                        {msg.text && <span>{msg.text}</span>}
+                      </div>
+                      <div className="supreme-dm-time">
+                        {msg.time}
+                        {msg.sent && (() => {
+                          const seenOthers = (msg.seenBy || []).filter(n => n.toLowerCase() !== userName.toLowerCase());
+                          return seenOthers.length > 0 ? <span className="seen-indicator"> · Seen</span> : null;
+                        })()}
+                      </div>
+                    </div>
+                  ))}
+                  {(supremeMessages[supremeActiveChat.id] || []).length === 0 && (
+                    <div className="supreme-empty">No messages yet. Say hello!</div>
+                  )}
+                </div>
+                <div className="supreme-dm-input">
+                  <input
+                    type="text"
+                    value={supremeMsgInput}
+                    onChange={(e) => setSupremeMsgInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && sendSupremeMessage()}
+                    placeholder={`Message ${supremeActiveChat.name}...`}
+                  />
+                  <button onClick={sendSupremeMessage}>Send</button>
+                </div>
+              </div>
+            ) : showCreateSpace ? (
               <div className="supreme-create-form">
                 <h3>Create New Space</h3>
                 <input
