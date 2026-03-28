@@ -1981,7 +1981,7 @@ function App() {
                     <div className="message-time">
                       {msg.timestamp ? formatMessageTime(msg.timestamp) : msg.time}
                       {msg.sent && (() => {
-                        const seenOthers = (msg.seenBy || []).filter(n => n.toLowerCase() !== username.toLowerCase());
+                        const seenOthers = (msg.seenBy || []).filter(n => n.toLowerCase() !== userName.toLowerCase());
                         if (seenOthers.length === 0) return null;
                         if (currentChat.type === 'contact') {
                           return <span className="seen-indicator"> · Seen</span>;
