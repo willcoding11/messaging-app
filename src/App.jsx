@@ -166,6 +166,7 @@ function App() {
   const callStreamRef = useRef(null);
   const callAudioRef = useRef(null);
   const activeCallRef = useRef(null);
+  const pendingCallSignalsRef = useRef([]);
   const cropperRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -267,6 +268,33 @@ function App() {
         }],
       });
     } catch (e) {}
+  }, []);
+
+  const iceConfig = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    ]
+  };
+
+  const createAudioElement = useCallback((remoteStream) => {
+    const audio = document.createElement('audio');
+    audio.autoplay = true;
+    audio.playsInline = true;
+    audio.srcObject = remoteStream;
+    audio.style.display = 'none';
+    document.body.appendChild(audio);
+    audio.play().catch(() => {});
+    return audio;
+  }, []);
+
+  const removeAudioElement = useCallback((audio) => {
+    if (audio) {
+      audio.srcObject = null;
+      audio.remove();
+    }
   }, []);
 
   const playNotificationSound = useCallback(() => {
@@ -525,7 +553,7 @@ function App() {
           initiator: false,
           stream: localStreamRef.current,
           trickle: true,
-          config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+          config: iceConfig
         });
 
         peer.on('signal', data => {
@@ -537,18 +565,13 @@ function App() {
         });
 
         peer.on('stream', remoteStream => {
-          const audio = new Audio();
-          audio.srcObject = remoteStream;
-          audio.play().catch(() => {});
-          audioElementsRef.current[lowerFrom] = audio;
+          audioElementsRef.current[lowerFrom] = createAudioElement(remoteStream);
         });
 
         peer.on('close', () => {
           delete peersRef.current[lowerFrom];
-          if (audioElementsRef.current[lowerFrom]) {
-            audioElementsRef.current[lowerFrom].srcObject = null;
-            delete audioElementsRef.current[lowerFrom];
-          }
+          removeAudioElement(audioElementsRef.current[lowerFrom]);
+          delete audioElementsRef.current[lowerFrom];
         });
 
         peer.on('error', () => {
@@ -570,6 +593,8 @@ function App() {
     socket.on('callAnswered', ({ by, chatId }) => {
       if (activeCallRef.current?.type === 'outgoing') {
         setActiveCall(prev => prev ? { ...prev, type: 'active' } : null);
+        // Now create the initiator peer since callee is ready
+        createCallPeer(by, true);
       }
     });
 
@@ -586,6 +611,9 @@ function App() {
     socket.on('callSignal', ({ from, signal }) => {
       if (callPeerRef.current) {
         callPeerRef.current.signal(signal);
+      } else {
+        // Buffer signal until peer is created
+        pendingCallSignalsRef.current.push(signal);
       }
     });
 
@@ -988,7 +1016,7 @@ function App() {
 
     // Remove all audio elements
     Object.keys(audioElementsRef.current).forEach(key => {
-      audioElementsRef.current[key].srcObject = null;
+      removeAudioElement(audioElementsRef.current[key]);
     });
     audioElementsRef.current = {};
 
@@ -1006,7 +1034,7 @@ function App() {
       initiator,
       stream: localStreamRef.current,
       trickle: true,
-      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+      config: iceConfig
     });
 
     peer.on('signal', data => {
@@ -1018,18 +1046,13 @@ function App() {
     });
 
     peer.on('stream', remoteStream => {
-      const audio = new Audio();
-      audio.srcObject = remoteStream;
-      audio.play().catch(() => {});
-      audioElementsRef.current[lowerTarget] = audio;
+      audioElementsRef.current[lowerTarget] = createAudioElement(remoteStream);
     });
 
     peer.on('close', () => {
       delete peersRef.current[lowerTarget];
-      if (audioElementsRef.current[lowerTarget]) {
-        audioElementsRef.current[lowerTarget].srcObject = null;
-        delete audioElementsRef.current[lowerTarget];
-      }
+      removeAudioElement(audioElementsRef.current[lowerTarget]);
+      delete audioElementsRef.current[lowerTarget];
     });
 
     peer.on('error', () => {
@@ -1063,38 +1086,11 @@ function App() {
 
       const chatId = getChatId(contactName);
       setActiveCall({ chatId, user: contactName, type: 'outgoing' });
+      pendingCallSignalsRef.current = [];
 
       socket.emit('startCall', { targetUser: contactName, chatId });
 
-      // Create peer as initiator - will connect when callee answers
-      const peer = new SimplePeer({
-        initiator: true,
-        stream,
-        trickle: true,
-        config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
-      });
-
-      peer.on('signal', data => {
-        socket.emit('callSignal', { targetUser: contactName, signal: data });
-      });
-
-      peer.on('stream', remoteStream => {
-        const audio = new Audio();
-        audio.srcObject = remoteStream;
-        audio.play().catch(() => {});
-        callAudioRef.current = audio;
-      });
-
-      peer.on('close', () => {
-        cleanupCall();
-      });
-
-      peer.on('error', () => {
-        cleanupCall();
-        showToast('Call connection failed', 'error');
-      });
-
-      callPeerRef.current = peer;
+      // Don't create peer yet - wait until callee answers to avoid signal race
     } catch (err) {
       if (err.name === 'NotAllowedError') {
         showToast('Microphone access is required for calls', 'error');
@@ -1102,6 +1098,39 @@ function App() {
         showToast('Failed to start call', 'error');
       }
     }
+  };
+
+  const createCallPeer = (targetUser, initiator) => {
+    const peer = new SimplePeer({
+      initiator,
+      stream: callStreamRef.current,
+      trickle: true,
+      config: iceConfig
+    });
+
+    peer.on('signal', data => {
+      socket.emit('callSignal', { targetUser, signal: data });
+    });
+
+    peer.on('stream', remoteStream => {
+      callAudioRef.current = createAudioElement(remoteStream);
+    });
+
+    peer.on('close', () => {
+      cleanupCall();
+    });
+
+    peer.on('error', () => {
+      cleanupCall();
+      showToast('Call connection failed', 'error');
+    });
+
+    callPeerRef.current = peer;
+
+    // Replay any buffered signals
+    const pending = pendingCallSignalsRef.current;
+    pendingCallSignalsRef.current = [];
+    pending.forEach(signal => peer.signal(signal));
   };
 
   const answerCall = async () => {
@@ -1116,34 +1145,8 @@ function App() {
 
       socket.emit('answerCall', { targetUser: from, chatId });
 
-      const peer = new SimplePeer({
-        initiator: false,
-        stream,
-        trickle: true,
-        config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
-      });
-
-      peer.on('signal', data => {
-        socket.emit('callSignal', { targetUser: from, signal: data });
-      });
-
-      peer.on('stream', remoteStream => {
-        const audio = new Audio();
-        audio.srcObject = remoteStream;
-        audio.play().catch(() => {});
-        callAudioRef.current = audio;
-      });
-
-      peer.on('close', () => {
-        cleanupCall();
-      });
-
-      peer.on('error', () => {
-        cleanupCall();
-        showToast('Call connection failed', 'error');
-      });
-
-      callPeerRef.current = peer;
+      // Create non-initiator peer and replay any buffered signals
+      createCallPeer(from, false);
     } catch (err) {
       rejectCall();
       showToast('Microphone access is required for calls', 'error');
@@ -1173,10 +1176,9 @@ function App() {
       callStreamRef.current.getTracks().forEach(t => t.stop());
       callStreamRef.current = null;
     }
-    if (callAudioRef.current) {
-      callAudioRef.current.srcObject = null;
-      callAudioRef.current = null;
-    }
+    removeAudioElement(callAudioRef.current);
+    callAudioRef.current = null;
+    pendingCallSignalsRef.current = [];
     setActiveCall(null);
     setIncomingCall(null);
     setIsMuted(false);
