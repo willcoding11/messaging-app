@@ -408,6 +408,11 @@ body {
   padding: 0 4px;
 }
 
+.seen-indicator {
+  color: #4fc3f7;
+  font-weight: 500;
+}
+
 .chat-input-area {
   padding: 15px;
   background: var(--bg-light);
@@ -785,6 +790,17 @@ body {
   display: flex;
   gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.input-btns-group {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.mobile-attach-toggle {
+  display: none;
 }
 
 .upload-progress-container {
@@ -2927,11 +2943,36 @@ body {
 
   /* Chat input adjustments */
   .chat-input-row {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .mobile-attach-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    font-size: 1.4rem;
+    font-weight: bold;
+    flex-shrink: 0;
+  }
+
+  .input-btns-group {
+    display: none;
+    width: 100%;
+    order: 3;
+    gap: 8px;
+    padding: 6px 0;
+  }
+
+  .input-btns-group.show {
+    display: flex;
   }
 
   .chat-input {
     min-width: 0;
+    flex: 1;
   }
 
   .input-btn {
@@ -2942,6 +2983,7 @@ body {
   .send-btn {
     padding: 10px 15px;
     font-size: 0.9rem;
+    flex-shrink: 0;
   }
 
   /* Messages */

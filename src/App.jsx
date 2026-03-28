@@ -101,6 +101,7 @@ function App() {
 
   // Game state
   const [showGamePicker, setShowGamePicker] = useState(false);
+  const [showMobileAttach, setShowMobileAttach] = useState(false);
   const [activeGame, setActiveGame] = useState(null);
 
   // Unread messages
@@ -311,6 +312,31 @@ function App() {
           [chatId]: (prev[chatId] || 0) + 1
         }));
       }
+      // Auto mark seen if this chat is currently open
+      if (!message.sent && currentChatRef.current?.id === chatId) {
+        const chat = currentChatRef.current;
+        socket.emit('markSeen', {
+          chatId,
+          chatType: chat.type,
+          recipient: chat.type === 'group' ? chat.id.replace('group_', '') : chat.name
+        });
+      }
+    });
+
+    socket.on('messagesSeen', ({ chatId, seenBy }) => {
+      setMessages(prev => {
+        const chatMessages = prev[chatId];
+        if (!chatMessages) return prev;
+        return {
+          ...prev,
+          [chatId]: chatMessages.map(msg => {
+            if (msg.sent && !(msg.seenBy || []).includes(seenBy)) {
+              return { ...msg, seenBy: [...(msg.seenBy || []), seenBy] };
+            }
+            return msg;
+          })
+        };
+      });
     });
 
     socket.on('contactAdded', (contact) => {
@@ -703,9 +729,11 @@ function App() {
     if (type === 'contact') {
       const chatId = getChatId(entity.name);
       setCurrentChat({ id: chatId, name: entity.name, type: 'contact', online: entity.online, avatar: entity.avatar });
+      socket.emit('markSeen', { chatId, chatType: 'contact', recipient: entity.name });
     } else {
       const chatId = `group_${entity.id}`;
       setCurrentChat({ id: chatId, name: entity.name, type: 'group', groupId: entity.id, members: entity.members, creator: entity.creator, avatar: entity.avatar, isMainGroup: entity.isMainGroup });
+      socket.emit('markSeen', { chatId, chatType: 'group', recipient: entity.id });
     }
     setMobileShowChat(true);
   };
@@ -1950,7 +1978,17 @@ function App() {
                       )}
                       {msg.text && <div className="message-text">{renderMessageText(msg.text)}</div>}
                     </div>
-                    <div className="message-time">{msg.timestamp ? formatMessageTime(msg.timestamp) : msg.time}</div>
+                    <div className="message-time">
+                      {msg.timestamp ? formatMessageTime(msg.timestamp) : msg.time}
+                      {msg.sent && (() => {
+                        const seenOthers = (msg.seenBy || []).filter(n => n.toLowerCase() !== username.toLowerCase());
+                        if (seenOthers.length === 0) return null;
+                        if (currentChat.type === 'contact') {
+                          return <span className="seen-indicator"> · Seen</span>;
+                        }
+                        return <span className="seen-indicator"> · Seen by {seenOthers.join(', ')}</span>;
+                      })()}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1973,6 +2011,10 @@ function App() {
               )}
               <div className="chat-input-row">
                 <input type="file" ref={fileInputRef} onChange={handleImageSelect} accept="image/*" style={{ display: 'none' }} />
+                <button className="mobile-attach-toggle input-btn" onClick={() => setShowMobileAttach(!showMobileAttach)} title="Attachments">
+                  {showMobileAttach ? '×' : '+'}
+                </button>
+                <div className={`input-btns-group ${showMobileAttach ? 'show' : ''}`}>
                 <button className="input-btn" onClick={() => fileInputRef.current?.click()} title="Send image" disabled={isUploading}>
                   <img src={userTheme === 'dark' ? cameraIconDark : cameraIcon} alt="Camera" className="input-icon" />
                 </button>
@@ -2024,6 +2066,7 @@ function App() {
                       </div>
                     </div>
                   )}
+                </div>
                 </div>
                 <input type="text" className="chat-input" value={messageInput} onChange={(e) => { setMessageInput(e.target.value); handleTyping(); }} onKeyDown={(e) => e.key === 'Enter' && !isUploading && sendMessage()} onPaste={handlePaste} placeholder={isUploading ? "Uploading image..." : "Type a message..."} disabled={isUploading} />
                 <button className="send-btn" onClick={() => sendMessage()} disabled={isUploading}>Send</button>

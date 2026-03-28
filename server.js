@@ -66,7 +66,8 @@ const messageSchema = new mongoose.Schema({
   game: mongoose.Schema.Types.Mixed,
   sender: String,
   time: String,
-  timestamp: { type: Number, default: Date.now }
+  timestamp: { type: Number, default: Date.now },
+  seenBy: { type: [String], default: [] }
 });
 
 const User = mongoose.model('User', userSchema);
@@ -661,12 +662,14 @@ io.on('connection', (socket) => {
         const msgs = await Message.find({ chatId }).sort({ timestamp: 1 });
         if (msgs.length > 0) {
           userMessages[chatId] = msgs.map(msg => ({
+            _id: msg._id,
             text: msg.text,
             image: msg.image,
             game: msg.game || null,
             sender: msg.sender,
             time: msg.time,
-            sent: msg.sender?.toLowerCase() === currentUser.toLowerCase()
+            sent: msg.sender?.toLowerCase() === currentUser.toLowerCase(),
+            seenBy: msg.seenBy || []
           }));
         }
       }
@@ -677,12 +680,14 @@ io.on('connection', (socket) => {
         const msgs = await Message.find({ chatId }).sort({ timestamp: 1 });
         if (msgs.length > 0) {
           userMessages[chatId] = msgs.map(msg => ({
+            _id: msg._id,
             text: msg.text,
             image: msg.image,
             game: msg.game || null,
             sender: msg.sender,
             time: msg.time,
-            sent: msg.sender?.toLowerCase() === currentUser.toLowerCase()
+            sent: msg.sender?.toLowerCase() === currentUser.toLowerCase(),
+            seenBy: msg.seenBy || []
           }));
         }
       }
@@ -1312,7 +1317,8 @@ io.on('connection', (socket) => {
         image: message.image || null,
         game: message.game || null,
         sender: currentUser,
-        time: message.time
+        time: message.time,
+        seenBy: [currentUser]
       });
 
       try {
@@ -1324,12 +1330,14 @@ io.on('connection', (socket) => {
       }
 
       const fullMessage = {
+        _id: msg._id,
         text: sanitizedText,
         image: message.image || null,
         game: message.game || null,
         sent: true,
         time: message.time,
-        sender: currentUser
+        sender: currentUser,
+        seenBy: [currentUser]
       };
 
       if (chatType === 'contact') {
@@ -1365,6 +1373,41 @@ io.on('connection', (socket) => {
     } catch (err) {
       console.error('sendMessage error:', err);
       socket.emit('error', { message: 'Failed to send message: ' + err.message });
+    }
+  });
+
+  // ============ MARK MESSAGES SEEN ============
+  socket.on('markSeen', async ({ chatId, chatType, recipient }) => {
+    try {
+      if (!currentUser) return;
+
+      const result = await Message.updateMany(
+        { chatId, sender: { $ne: currentUser }, seenBy: { $ne: currentUser } },
+        { $addToSet: { seenBy: currentUser } }
+      );
+
+      if (result.modifiedCount > 0) {
+        // Notify the other user(s) that messages were seen
+        if (chatType === 'contact') {
+          const recipientLower = recipient.toLowerCase();
+          const recipientSocket = onlineUsers.get(recipientLower);
+          if (recipientSocket) {
+            io.to(recipientSocket).emit('messagesSeen', { chatId: getChatId(recipient, currentUser), seenBy: currentUser });
+          }
+        } else if (chatType === 'group') {
+          const group = await Group.findOne({ groupId: recipient });
+          if (group) {
+            group.members.forEach(memberName => {
+              const memberSocket = onlineUsers.get(memberName.toLowerCase());
+              if (memberSocket && memberName.toLowerCase() !== currentUser.toLowerCase()) {
+                io.to(memberSocket).emit('messagesSeen', { chatId, seenBy: currentUser });
+              }
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error('markSeen error:', err);
     }
   });
 

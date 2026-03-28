@@ -17,7 +17,8 @@
       "WebFetch(domain:messaging-app-2lzh.onrender.com)",
       "Bash(sed \"s/.*socket\\\\.on\\(''''//\")",
       "Bash(sed \"s/'''',.*//\")",
-      "Bash(sed \"s/.*socket.on.//\")"
+      "Bash(sed \"s/.*socket.on.//\")",
+      "Bash(npx cap:*)"
     ]
   }
 }
