@@ -2051,6 +2051,47 @@ io.on('connection', (socket) => {
   });
 
   // ============ DISCONNECT ============
+  // ============ DM CALLS ============
+  socket.on('startCall', ({ targetUser, chatId }) => {
+    if (!currentUser) return;
+    const targetSocket = onlineUsers.get(targetUser.toLowerCase());
+    if (targetSocket) {
+      io.to(targetSocket).emit('incomingCall', { from: currentUser, chatId });
+    }
+  });
+
+  socket.on('answerCall', ({ targetUser, chatId }) => {
+    if (!currentUser) return;
+    const targetSocket = onlineUsers.get(targetUser.toLowerCase());
+    if (targetSocket) {
+      io.to(targetSocket).emit('callAnswered', { by: currentUser, chatId });
+    }
+  });
+
+  socket.on('rejectCall', ({ targetUser }) => {
+    if (!currentUser) return;
+    const targetSocket = onlineUsers.get(targetUser.toLowerCase());
+    if (targetSocket) {
+      io.to(targetSocket).emit('callRejected', { by: currentUser });
+    }
+  });
+
+  socket.on('endCall', ({ targetUser }) => {
+    if (!currentUser) return;
+    const targetSocket = onlineUsers.get(targetUser.toLowerCase());
+    if (targetSocket) {
+      io.to(targetSocket).emit('callEnded', { by: currentUser });
+    }
+  });
+
+  socket.on('callSignal', ({ targetUser, signal }) => {
+    if (!currentUser) return;
+    const targetSocket = onlineUsers.get(targetUser.toLowerCase());
+    if (targetSocket) {
+      io.to(targetSocket).emit('callSignal', { from: currentUser, signal });
+    }
+  });
+
   // ============ VOICE CHAT ============
   socket.on('joinVoice', async ({ groupId }, callback) => {
     try {

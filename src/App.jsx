@@ -141,6 +141,10 @@ function App() {
   const [isMuted, setIsMuted] = useState(false);
   const [voiceConnecting, setVoiceConnecting] = useState(false);
 
+  // DM call state
+  const [activeCall, setActiveCall] = useState(null); // { chatId, user, type: 'outgoing'|'incoming'|'active' }
+  const [incomingCall, setIncomingCall] = useState(null); // { from, chatId }
+
   const messagesEndRef = useRef(null);
   const currentChatRef = useRef(null);
   const soundEnabledRef = useRef(true);
@@ -153,6 +157,10 @@ function App() {
   const peersRef = useRef({});
   const audioElementsRef = useRef({});
   const voiceChannelRef = useRef(null);
+  const callPeerRef = useRef(null);
+  const callStreamRef = useRef(null);
+  const callAudioRef = useRef(null);
+  const activeCallRef = useRef(null);
   const cropperRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -268,6 +276,10 @@ function App() {
   useEffect(() => {
     voiceChannelRef.current = voiceChannel;
   }, [voiceChannel]);
+
+  useEffect(() => {
+    activeCallRef.current = activeCall;
+  }, [activeCall]);
 
   // Sync currentChat with contacts/groups
   useEffect(() => {
@@ -459,6 +471,34 @@ function App() {
       }
     });
 
+    socket.on('incomingCall', ({ from, chatId }) => {
+      // Ignore if already in a call
+      if (activeCallRef.current) return;
+      setIncomingCall({ from, chatId });
+    });
+
+    socket.on('callAnswered', ({ by, chatId }) => {
+      if (activeCallRef.current?.type === 'outgoing') {
+        setActiveCall(prev => prev ? { ...prev, type: 'active' } : null);
+      }
+    });
+
+    socket.on('callRejected', ({ by }) => {
+      cleanupCall();
+      showToast(`${by} declined the call`, 'info');
+    });
+
+    socket.on('callEnded', ({ by }) => {
+      cleanupCall();
+      showToast('Call ended', 'info');
+    });
+
+    socket.on('callSignal', ({ from, signal }) => {
+      if (callPeerRef.current) {
+        callPeerRef.current.signal(signal);
+      }
+    });
+
     socket.on('userTyping', ({ chatId, user, isTyping }) => {
       setTypingUsers(prev => {
         const current = prev[chatId] || [];
@@ -520,6 +560,11 @@ function App() {
       socket.off('gameUpdated');
       socket.off('voiceStateUpdate');
       socket.off('voiceSignal');
+      socket.off('incomingCall');
+      socket.off('callAnswered');
+      socket.off('callRejected');
+      socket.off('callEnded');
+      socket.off('callSignal');
     };
   }, [showToast]);
 
@@ -662,6 +707,7 @@ function App() {
 
   const handleLogout = () => {
     if (voiceChannel) leaveVoice();
+    if (activeCall) endCall();
     localStorage.removeItem('sessionToken');
     setIsLoggedIn(false);
     setUserName('');
@@ -907,6 +953,148 @@ function App() {
   const toggleMute = () => {
     if (localStreamRef.current) {
       const track = localStreamRef.current.getAudioTracks()[0];
+      if (track) {
+        track.enabled = !track.enabled;
+        setIsMuted(!track.enabled);
+      }
+    }
+  };
+
+  // ============ DM CALLS ============
+  const startCall = async (contactName) => {
+    try {
+      if (activeCall || voiceChannel) {
+        showToast('Already in a call or voice channel', 'error');
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      callStreamRef.current = stream;
+
+      const chatId = getChatId(contactName);
+      setActiveCall({ chatId, user: contactName, type: 'outgoing' });
+
+      socket.emit('startCall', { targetUser: contactName, chatId });
+
+      // Create peer as initiator - will connect when callee answers
+      const peer = new SimplePeer({
+        initiator: true,
+        stream,
+        trickle: true,
+        config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+      });
+
+      peer.on('signal', data => {
+        socket.emit('callSignal', { targetUser: contactName, signal: data });
+      });
+
+      peer.on('stream', remoteStream => {
+        const audio = new Audio();
+        audio.srcObject = remoteStream;
+        audio.play().catch(() => {});
+        callAudioRef.current = audio;
+      });
+
+      peer.on('close', () => {
+        cleanupCall();
+      });
+
+      peer.on('error', () => {
+        cleanupCall();
+        showToast('Call connection failed', 'error');
+      });
+
+      callPeerRef.current = peer;
+    } catch (err) {
+      if (err.name === 'NotAllowedError') {
+        showToast('Microphone access is required for calls', 'error');
+      } else {
+        showToast('Failed to start call', 'error');
+      }
+    }
+  };
+
+  const answerCall = async () => {
+    if (!incomingCall) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      callStreamRef.current = stream;
+
+      const { from, chatId } = incomingCall;
+      setActiveCall({ chatId, user: from, type: 'active' });
+      setIncomingCall(null);
+
+      socket.emit('answerCall', { targetUser: from, chatId });
+
+      const peer = new SimplePeer({
+        initiator: false,
+        stream,
+        trickle: true,
+        config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+      });
+
+      peer.on('signal', data => {
+        socket.emit('callSignal', { targetUser: from, signal: data });
+      });
+
+      peer.on('stream', remoteStream => {
+        const audio = new Audio();
+        audio.srcObject = remoteStream;
+        audio.play().catch(() => {});
+        callAudioRef.current = audio;
+      });
+
+      peer.on('close', () => {
+        cleanupCall();
+      });
+
+      peer.on('error', () => {
+        cleanupCall();
+        showToast('Call connection failed', 'error');
+      });
+
+      callPeerRef.current = peer;
+    } catch (err) {
+      rejectCall();
+      showToast('Microphone access is required for calls', 'error');
+    }
+  };
+
+  const rejectCall = () => {
+    if (incomingCall) {
+      socket.emit('rejectCall', { targetUser: incomingCall.from });
+      setIncomingCall(null);
+    }
+  };
+
+  const endCall = () => {
+    if (activeCall) {
+      socket.emit('endCall', { targetUser: activeCall.user });
+    }
+    cleanupCall();
+  };
+
+  const cleanupCall = () => {
+    if (callPeerRef.current) {
+      callPeerRef.current.destroy();
+      callPeerRef.current = null;
+    }
+    if (callStreamRef.current) {
+      callStreamRef.current.getTracks().forEach(t => t.stop());
+      callStreamRef.current = null;
+    }
+    if (callAudioRef.current) {
+      callAudioRef.current.srcObject = null;
+      callAudioRef.current = null;
+    }
+    setActiveCall(null);
+    setIncomingCall(null);
+    setIsMuted(false);
+  };
+
+  const toggleCallMute = () => {
+    if (callStreamRef.current) {
+      const track = callStreamRef.current.getAudioTracks()[0];
       if (track) {
         track.enabled = !track.enabled;
         setIsMuted(!track.enabled);
@@ -2261,6 +2449,11 @@ function App() {
                   <div className="status-text">{currentChat.members?.length} members</div>
                 )}
               </div>
+              {currentChat.type === 'contact' && (
+                <button className="call-btn" onClick={() => startCall(currentChat.name)} title="Voice call" disabled={!!activeCall || !!voiceChannel}>
+                  &#128222;
+                </button>
+              )}
               {currentChat.type === 'group' && (
                 <button className="group-info-btn" onClick={openGroupSettingsModal} title="Group settings">
                   <img src={userTheme === 'dark' ? infoIconDark : infoIcon} alt="Info" className="info-icon" />
@@ -2787,6 +2980,44 @@ function App() {
               <button className="modal-btn cancel" onClick={() => setShowGroupModal(false)}>Cancel</button>
               <button className="modal-btn confirm" onClick={createGroup}>Create</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Incoming Call Modal */}
+      {incomingCall && (
+        <div className="call-overlay">
+          <div className="call-modal incoming">
+            <div className="call-avatar">
+              {incomingCall.from.charAt(0).toUpperCase()}
+            </div>
+            <div className="call-info">
+              <div className="call-name">{incomingCall.from}</div>
+              <div className="call-status">Incoming voice call...</div>
+            </div>
+            <div className="call-actions">
+              <button className="call-answer-btn" onClick={answerCall}>Accept</button>
+              <button className="call-reject-btn" onClick={rejectCall}>Decline</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Active Call Bar */}
+      {activeCall && (
+        <div className="active-call-bar">
+          <div className="call-bar-info">
+            <span className="call-bar-icon">&#128222;</span>
+            <span className="call-bar-name">{activeCall.user}</span>
+            <span className="call-bar-status">
+              {activeCall.type === 'outgoing' ? 'Calling...' : 'In call'}
+            </span>
+          </div>
+          <div className="call-bar-controls">
+            <button className={`call-bar-mute ${isMuted ? 'muted' : ''}`} onClick={toggleCallMute}>
+              {isMuted ? '\u{1F507}' : '\u{1F3A4}'}
+            </button>
+            <button className="call-bar-end" onClick={endCall}>End</button>
           </div>
         </div>
       )}

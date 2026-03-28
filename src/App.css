@@ -4074,6 +4074,214 @@ body {
   background: #c62828;
 }
 
+/* ============ DM Calls ============ */
+
+.call-btn {
+  background: none;
+  border: none;
+  font-size: 1.3rem;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 8px;
+  transition: background 0.2s;
+  margin-left: auto;
+}
+
+.call-btn:hover {
+  background: rgba(0,0,0,0.08);
+}
+
+.call-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+[data-theme="dark"] .call-btn:hover {
+  background: rgba(255,255,255,0.1);
+}
+
+/* Incoming call overlay */
+.call-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.call-modal {
+  background: #fff;
+  border-radius: 16px;
+  padding: 30px;
+  text-align: center;
+  min-width: 280px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+  animation: callSlideIn 0.3s ease;
+}
+
+[data-theme="dark"] .call-modal {
+  background: #1e1e2e;
+  color: #e0e0e0;
+}
+
+@keyframes callSlideIn {
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.call-avatar {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 600;
+  margin: 0 auto 15px;
+}
+
+.call-name {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.call-status {
+  font-size: 0.85rem;
+  color: #888;
+  margin-bottom: 20px;
+}
+
+.call-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.call-answer-btn {
+  padding: 12px 28px;
+  background: #43a047;
+  color: white;
+  border: none;
+  border-radius: 25px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.call-answer-btn:hover {
+  background: #388e3c;
+}
+
+.call-reject-btn {
+  padding: 12px 28px;
+  background: #e53935;
+  color: white;
+  border: none;
+  border-radius: 25px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.call-reject-btn:hover {
+  background: #c62828;
+}
+
+/* Active call bar - fixed at top */
+.active-call-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 44px;
+  background: #43a047;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 15px;
+  z-index: 999;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.active-call-bar .call-bar-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.call-bar-icon {
+  font-size: 1rem;
+}
+
+.call-bar-name {
+  font-weight: 600;
+}
+
+.call-bar-status {
+  opacity: 0.85;
+  font-size: 0.8rem;
+}
+
+.call-bar-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.call-bar-mute {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.2);
+  color: white;
+  cursor: pointer;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.call-bar-mute:hover {
+  background: rgba(255,255,255,0.3);
+}
+
+.call-bar-mute.muted {
+  background: #ff9800;
+}
+
+.call-bar-end {
+  padding: 5px 14px;
+  background: #e53935;
+  color: white;
+  border: none;
+  border-radius: 15px;
+  font-weight: 600;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.call-bar-end:hover {
+  background: #c62828;
+}
+
+/* Shift main content down when call is active */
+.container:has(.active-call-bar) {
+  margin-top: 44px;
+  height: calc(100vh - 44px);
+}
+
 /* Mobile voice adjustments */
 @media (max-width: 768px) {
   .voice-channel-panel {
