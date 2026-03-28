@@ -1718,6 +1718,9 @@ function App() {
                         <div key={idx} className="supreme-message">
                           <strong>{msg.sender}:</strong> {msg.image ? '[Image]' : ''} {msg.text}
                           <span className="supreme-msg-time">{msg.time}</span>
+                          {msg.seenBy && msg.seenBy.length > 0 && (
+                            <span className="supreme-seen-info">Seen by: {msg.seenBy.filter(n => n.toLowerCase() !== msg.sender?.toLowerCase()).join(', ') || 'sender only'}</span>
+                          )}
                         </div>
                       ))}
                       {supremeChatMessages.length === 0 && <div className="supreme-empty">No messages in this chat</div>}

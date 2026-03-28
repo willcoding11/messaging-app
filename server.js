@@ -847,7 +847,8 @@ io.on('connection', (socket) => {
         game: msg.game || null,
         sender: msg.sender,
         time: msg.time,
-        sent: false // Supreme is always a viewer
+        sent: false,
+        seenBy: msg.seenBy || []
       }));
 
       callback({ success: true, messages });

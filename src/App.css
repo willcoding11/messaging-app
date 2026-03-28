@@ -3517,6 +3517,13 @@ body {
   font-size: 0.75rem;
 }
 
+.supreme-seen-info {
+  display: block;
+  font-size: 0.7rem;
+  color: #4fc3f7;
+  margin-top: 2px;
+}
+
 .modal-btn.danger {
   background: #dc3545;
   color: white;
