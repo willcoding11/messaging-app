@@ -3830,3 +3830,251 @@ body {
     padding: 15px;
   }
 }
+
+/* ============ Voice Chat ============ */
+
+.voice-channel-panel {
+  background: #f0f4f0;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 10px 15px;
+}
+
+[data-theme="dark"] .voice-channel-panel {
+  background: #1e1e2e;
+  border-bottom: 1px solid #333;
+}
+
+.voice-channel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #555;
+}
+
+[data-theme="dark"] .voice-channel-header {
+  color: #aaa;
+}
+
+.voice-channel-icon {
+  font-size: 1rem;
+}
+
+.voice-member-count {
+  background: var(--primary);
+  color: white;
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.voice-members-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 0;
+}
+
+.voice-member {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0,0,0,0.05);
+  padding: 4px 10px 4px 4px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+}
+
+[data-theme="dark"] .voice-member {
+  background: rgba(255,255,255,0.08);
+}
+
+.voice-member-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.voice-member-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.voice-member-name {
+  font-weight: 500;
+}
+
+.voice-muted-icon {
+  font-size: 0.8rem;
+  opacity: 0.6;
+}
+
+.voice-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.voice-join-btn {
+  flex: 1;
+  padding: 8px 16px;
+  background: #43a047;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.voice-join-btn:hover {
+  background: #388e3c;
+}
+
+.voice-join-btn:disabled {
+  background: #999;
+  cursor: not-allowed;
+}
+
+.voice-mute-btn {
+  flex: 1;
+  padding: 8px 16px;
+  background: #555;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.voice-mute-btn:hover {
+  background: #666;
+}
+
+.voice-mute-btn.muted {
+  background: #ff9800;
+}
+
+.voice-leave-btn {
+  flex: 1;
+  padding: 8px 16px;
+  background: #e53935;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.voice-leave-btn:hover {
+  background: #c62828;
+}
+
+/* Voice indicator in group list */
+.voice-active-indicator {
+  font-size: 0.7rem;
+  color: #43a047;
+  margin-left: 6px;
+  font-weight: 600;
+}
+
+/* Persistent voice bar at bottom of sidebar */
+.voice-connected-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 15px;
+  background: #1b5e20;
+  color: white;
+  border-top: 1px solid #2e7d32;
+  flex-shrink: 0;
+}
+
+.voice-connected-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.voice-connected-icon {
+  font-size: 1rem;
+}
+
+.voice-connected-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.voice-connected-controls button {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.voice-bar-mute {
+  background: rgba(255,255,255,0.15);
+  color: white;
+}
+
+.voice-bar-mute:hover {
+  background: rgba(255,255,255,0.25);
+}
+
+.voice-bar-mute.muted {
+  background: #ff9800;
+  color: white;
+}
+
+.voice-bar-disconnect {
+  background: #e53935;
+  color: white;
+}
+
+.voice-bar-disconnect:hover {
+  background: #c62828;
+}
+
+/* Mobile voice adjustments */
+@media (max-width: 768px) {
+  .voice-channel-panel {
+    padding: 8px 12px;
+  }
+
+  .voice-controls {
+    gap: 6px;
+  }
+
+  .voice-join-btn,
+  .voice-mute-btn,
+  .voice-leave-btn {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+  }
+}

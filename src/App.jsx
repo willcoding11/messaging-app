@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
+import SimplePeer from 'simple-peer';
 import cameraIcon from '../assets/camera.png';
 import emojiIcon from '../assets/happy.png';
 import gifIcon from '../assets/gif.png';
@@ -134,6 +135,12 @@ function App() {
   const [supremeActiveChat, setSupremeActiveChat] = useState(null);
   const [supremeMsgInput, setSupremeMsgInput] = useState('');
 
+  // Voice chat state
+  const [voiceChannel, setVoiceChannel] = useState(null);
+  const [voiceMembers, setVoiceMembers] = useState({});
+  const [isMuted, setIsMuted] = useState(false);
+  const [voiceConnecting, setVoiceConnecting] = useState(false);
+
   const messagesEndRef = useRef(null);
   const currentChatRef = useRef(null);
   const soundEnabledRef = useRef(true);
@@ -142,6 +149,10 @@ function App() {
   const groupAvatarInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
+  const localStreamRef = useRef(null);
+  const peersRef = useRef({});
+  const audioElementsRef = useRef({});
+  const voiceChannelRef = useRef(null);
   const cropperRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -202,6 +213,7 @@ function App() {
               setGroups(data.groups);
               setMessages(data.messages);
               if (data.spaceInfo) setSpaceInfo(data.spaceInfo);
+              loadVoiceState(data.groups);
             });
           }
         } else {
@@ -251,6 +263,11 @@ function App() {
       });
     }
   }, [currentChat]);
+
+  // Keep voiceChannelRef in sync
+  useEffect(() => {
+    voiceChannelRef.current = voiceChannel;
+  }, [voiceChannel]);
 
   // Sync currentChat with contacts/groups
   useEffect(() => {
@@ -392,6 +409,56 @@ function App() {
       });
     });
 
+    socket.on('voiceStateUpdate', ({ groupId, members }) => {
+      setVoiceMembers(prev => ({ ...prev, [groupId]: members }));
+    });
+
+    socket.on('voiceSignal', ({ groupId, fromUser, signal }) => {
+      const lowerFrom = fromUser.toLowerCase();
+      if (peersRef.current[lowerFrom]) {
+        peersRef.current[lowerFrom].signal(signal);
+      } else if (localStreamRef.current && voiceChannelRef.current) {
+        // New peer connecting to us - create non-initiator peer
+        const peer = new SimplePeer({
+          initiator: false,
+          stream: localStreamRef.current,
+          trickle: true,
+          config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+        });
+
+        peer.on('signal', data => {
+          socket.emit('voiceSignal', {
+            groupId: voiceChannelRef.current,
+            targetUser: fromUser,
+            signal: data
+          });
+        });
+
+        peer.on('stream', remoteStream => {
+          const audio = new Audio();
+          audio.srcObject = remoteStream;
+          audio.play().catch(() => {});
+          audioElementsRef.current[lowerFrom] = audio;
+        });
+
+        peer.on('close', () => {
+          delete peersRef.current[lowerFrom];
+          if (audioElementsRef.current[lowerFrom]) {
+            audioElementsRef.current[lowerFrom].srcObject = null;
+            delete audioElementsRef.current[lowerFrom];
+          }
+        });
+
+        peer.on('error', () => {
+          peer.destroy();
+          delete peersRef.current[lowerFrom];
+        });
+
+        peersRef.current[lowerFrom] = peer;
+        peer.signal(signal);
+      }
+    });
+
     socket.on('userTyping', ({ chatId, user, isTyping }) => {
       setTypingUsers(prev => {
         const current = prev[chatId] || [];
@@ -451,6 +518,8 @@ function App() {
       socket.off('error');
       socket.off('banned');
       socket.off('gameUpdated');
+      socket.off('voiceStateUpdate');
+      socket.off('voiceSignal');
     };
   }, [showToast]);
 
@@ -538,6 +607,7 @@ function App() {
             setGroups(data.groups);
             setMessages(data.messages);
             if (data.spaceInfo) setSpaceInfo(data.spaceInfo);
+            loadVoiceState(data.groups);
           });
         }
       } else {
@@ -579,6 +649,7 @@ function App() {
           setContacts(data.contacts);
           setGroups(data.groups);
           setMessages(data.messages);
+          loadVoiceState(data.groups);
         });
         if (response.isNewUser) {
           showToast('Welcome! Your account has been created.', 'success');
@@ -590,6 +661,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    if (voiceChannel) leaveVoice();
     localStorage.removeItem('sessionToken');
     setIsLoggedIn(false);
     setUserName('');
@@ -705,6 +777,141 @@ function App() {
       message
     });
     setSupremeMsgInput('');
+  };
+
+  // Load voice state for all groups
+  const loadVoiceState = (groupsList) => {
+    groupsList.forEach(group => {
+      socket.emit('getVoiceMembers', { groupId: group.id }, (response) => {
+        if (response.success && response.members.length > 0) {
+          setVoiceMembers(prev => ({ ...prev, [group.id]: response.members }));
+        }
+      });
+    });
+  };
+
+  // ============ VOICE CHAT ============
+  const joinVoice = async (groupId) => {
+    try {
+      setVoiceConnecting(true);
+
+      // Leave current voice if in one
+      if (voiceChannel) {
+        await leaveVoice();
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      localStreamRef.current = stream;
+
+      socket.emit('joinVoice', { groupId }, (response) => {
+        if (response.success) {
+          setVoiceChannel(groupId);
+          setVoiceConnecting(false);
+
+          // Create peer connections to existing members
+          const myName = userName.toLowerCase();
+          response.members.forEach(member => {
+            if (member.toLowerCase() !== myName) {
+              createPeer(member, true);
+            }
+          });
+        } else {
+          stream.getTracks().forEach(t => t.stop());
+          localStreamRef.current = null;
+          setVoiceConnecting(false);
+          showToast(response.error || 'Failed to join voice', 'error');
+        }
+      });
+    } catch (err) {
+      setVoiceConnecting(false);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        showToast('Microphone access is required for voice chat', 'error');
+      } else {
+        showToast('Failed to access microphone', 'error');
+      }
+    }
+  };
+
+  const leaveVoice = () => {
+    const groupId = voiceChannelRef.current;
+    if (groupId) {
+      socket.emit('leaveVoice', { groupId });
+    }
+
+    // Stop local stream
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(t => t.stop());
+      localStreamRef.current = null;
+    }
+
+    // Destroy all peers
+    Object.keys(peersRef.current).forEach(key => {
+      peersRef.current[key].destroy();
+    });
+    peersRef.current = {};
+
+    // Remove all audio elements
+    Object.keys(audioElementsRef.current).forEach(key => {
+      audioElementsRef.current[key].srcObject = null;
+    });
+    audioElementsRef.current = {};
+
+    setVoiceChannel(null);
+    setIsMuted(false);
+  };
+
+  const createPeer = (targetUser, initiator) => {
+    const lowerTarget = targetUser.toLowerCase();
+    if (peersRef.current[lowerTarget]) {
+      peersRef.current[lowerTarget].destroy();
+    }
+
+    const peer = new SimplePeer({
+      initiator,
+      stream: localStreamRef.current,
+      trickle: true,
+      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+    });
+
+    peer.on('signal', data => {
+      socket.emit('voiceSignal', {
+        groupId: voiceChannelRef.current,
+        targetUser,
+        signal: data
+      });
+    });
+
+    peer.on('stream', remoteStream => {
+      const audio = new Audio();
+      audio.srcObject = remoteStream;
+      audio.play().catch(() => {});
+      audioElementsRef.current[lowerTarget] = audio;
+    });
+
+    peer.on('close', () => {
+      delete peersRef.current[lowerTarget];
+      if (audioElementsRef.current[lowerTarget]) {
+        audioElementsRef.current[lowerTarget].srcObject = null;
+        delete audioElementsRef.current[lowerTarget];
+      }
+    });
+
+    peer.on('error', () => {
+      peer.destroy();
+      delete peersRef.current[lowerTarget];
+    });
+
+    peersRef.current[lowerTarget] = peer;
+  };
+
+  const toggleMute = () => {
+    if (localStreamRef.current) {
+      const track = localStreamRef.current.getAudioTracks()[0];
+      if (track) {
+        track.enabled = !track.enabled;
+        setIsMuted(!track.enabled);
+      }
+    }
   };
 
   // ============ ADMIN FUNCTIONS ============
@@ -1995,6 +2202,9 @@ function App() {
                       <div className="contact-name">
                         {group.isMainGroup && <span className="main-group-badge">Main</span>}
                         {group.name}
+                        {(voiceMembers[group.id] || []).length > 0 && (
+                          <span className="voice-active-indicator">&#128266; {(voiceMembers[group.id] || []).length}</span>
+                        )}
                       </div>
                       <div className="last-message">{getLastMessage(groupChatId)}</div>
                     </div>
@@ -2008,6 +2218,18 @@ function App() {
             )
           )}
         </div>
+        {voiceChannel && (
+          <div className="voice-connected-bar">
+            <div className="voice-connected-info">
+              <span className="voice-connected-icon">&#128266;</span>
+              <span>Voice Connected</span>
+            </div>
+            <div className="voice-connected-controls">
+              <button className={`voice-bar-mute ${isMuted ? 'muted' : ''}`} onClick={toggleMute}>{isMuted ? '\u{1F507}' : '\u{1F3A4}'}</button>
+              <button className="voice-bar-disconnect" onClick={leaveVoice}>&#128222;</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Chat Area */}
@@ -2043,6 +2265,52 @@ function App() {
                 </button>
               )}
             </div>
+            {currentChat.type === 'group' && (
+              <div className="voice-channel-panel">
+                <div className="voice-channel-header">
+                  <span className="voice-channel-icon">&#128266;</span>
+                  <span>Voice Chat</span>
+                  <span className="voice-member-count">{(voiceMembers[currentChat.groupId] || []).length}</span>
+                </div>
+                {(voiceMembers[currentChat.groupId] || []).length > 0 && (
+                  <div className="voice-members-list">
+                    {(voiceMembers[currentChat.groupId] || []).map(member => (
+                      <div key={member} className="voice-member">
+                        <div className="voice-member-avatar">
+                          {getMemberAvatar(member) ?
+                            <img src={getMemberAvatar(member)} alt={member} /> :
+                            member.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="voice-member-name">{member}</span>
+                        {member.toLowerCase() === userName.toLowerCase() && isMuted && (
+                          <span className="voice-muted-icon">&#128263;</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="voice-controls">
+                  {voiceChannel === currentChat.groupId ? (
+                    <>
+                      <button className={`voice-mute-btn ${isMuted ? 'muted' : ''}`} onClick={toggleMute}>
+                        {isMuted ? 'Unmute' : 'Mute'}
+                      </button>
+                      <button className="voice-leave-btn" onClick={leaveVoice}>
+                        Leave
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="voice-join-btn"
+                      onClick={() => joinVoice(currentChat.groupId)}
+                      disabled={voiceConnecting}
+                    >
+                      {voiceConnecting ? 'Connecting...' : 'Join Voice'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
             <div className="chat-messages">
               {(messages[currentChat.id] || []).map((msg, idx) => (
                 <div key={idx} className={`message-wrapper ${msg.sent ? 'sent' : 'received'} ${!msg.sent && currentChat.type === 'group' ? 'group-message' : ''}`}>

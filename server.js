@@ -193,6 +193,37 @@ function generateSpaceCode() {
 
 // Runtime state
 const onlineUsers = new Map();
+const voiceChannels = new Map();    // groupId → Set of lowercase usernames
+const userVoiceChannel = new Map(); // lowercase username → groupId (reverse lookup)
+
+// Helper to broadcast voice state to all group members
+async function broadcastVoiceState(groupId) {
+  const members = voiceChannels.get(groupId);
+  const memberNames = members ? Array.from(members) : [];
+  const group = await Group.findOne({ groupId });
+  if (!group) return;
+  group.members.forEach(memberName => {
+    const memberSocket = onlineUsers.get(memberName.toLowerCase());
+    if (memberSocket) {
+      io.to(memberSocket).emit('voiceStateUpdate', { groupId, members: memberNames });
+    }
+  });
+}
+
+// Helper to remove user from voice channel
+async function removeFromVoice(lowerName) {
+  const groupId = userVoiceChannel.get(lowerName);
+  if (!groupId) return;
+  const channel = voiceChannels.get(groupId);
+  if (channel) {
+    channel.delete(lowerName);
+    if (channel.size === 0) {
+      voiceChannels.delete(groupId);
+    }
+  }
+  userVoiceChannel.delete(lowerName);
+  await broadcastVoiceState(groupId);
+}
 
 // Helper to create consistent chat IDs
 function getChatId(user1, user2) {
@@ -1753,6 +1784,15 @@ io.on('connection', (socket) => {
         return;
       }
 
+      // Remove all users from voice channel if active
+      const voiceMembers = voiceChannels.get(groupId);
+      if (voiceMembers) {
+        for (const member of voiceMembers) {
+          userVoiceChannel.delete(member);
+        }
+        voiceChannels.delete(groupId);
+      }
+
       group.members.forEach(memberName => {
         const memberSocket = onlineUsers.get(memberName.toLowerCase());
         if (memberSocket) {
@@ -1914,6 +1954,11 @@ io.on('connection', (socket) => {
         return;
       }
 
+      // Remove from voice if in this channel
+      if (userVoiceChannel.get(lowerName) === groupId) {
+        await removeFromVoice(lowerName);
+      }
+
       const removedSocket = onlineUsers.get(lowerName);
       if (removedSocket) {
         io.to(removedSocket).emit('groupDeleted', groupId);
@@ -1971,6 +2016,11 @@ io.on('connection', (socket) => {
         return;
       }
 
+      // Remove from voice if in this channel
+      if (userVoiceChannel.get(lowerName) === groupId) {
+        await removeFromVoice(lowerName);
+      }
+
       group.members = group.members.filter(m => m.toLowerCase() !== lowerName);
       await group.save();
 
@@ -2001,8 +2051,76 @@ io.on('connection', (socket) => {
   });
 
   // ============ DISCONNECT ============
-  socket.on('disconnect', () => {
+  // ============ VOICE CHAT ============
+  socket.on('joinVoice', async ({ groupId }, callback) => {
+    try {
+      if (!currentUser) {
+        callback({ success: false, error: 'Not logged in' });
+        return;
+      }
+
+      const group = await Group.findOne({ groupId });
+      if (!group) {
+        callback({ success: false, error: 'Group not found' });
+        return;
+      }
+
+      const lowerName = currentUser.toLowerCase();
+      if (!group.members.some(m => m.toLowerCase() === lowerName)) {
+        callback({ success: false, error: 'Not a member of this group' });
+        return;
+      }
+
+      // Leave current voice channel if in one
+      await removeFromVoice(lowerName);
+
+      // Join new voice channel
+      if (!voiceChannels.has(groupId)) {
+        voiceChannels.set(groupId, new Set());
+      }
+      voiceChannels.get(groupId).add(lowerName);
+      userVoiceChannel.set(lowerName, groupId);
+
+      const members = Array.from(voiceChannels.get(groupId));
+      await broadcastVoiceState(groupId);
+
+      callback({ success: true, members });
+    } catch (err) {
+      console.error('joinVoice error:', err);
+      callback({ success: false, error: 'Failed to join voice' });
+    }
+  });
+
+  socket.on('leaveVoice', async ({ groupId }) => {
+    try {
+      if (!currentUser) return;
+      await removeFromVoice(currentUser.toLowerCase());
+    } catch (err) {
+      console.error('leaveVoice error:', err);
+    }
+  });
+
+  socket.on('voiceSignal', ({ groupId, targetUser, signal }) => {
+    if (!currentUser) return;
+    const targetSocket = onlineUsers.get(targetUser.toLowerCase());
+    if (targetSocket) {
+      io.to(targetSocket).emit('voiceSignal', {
+        groupId,
+        fromUser: currentUser,
+        signal
+      });
+    }
+  });
+
+  socket.on('getVoiceMembers', ({ groupId }, callback) => {
+    const members = voiceChannels.get(groupId);
+    callback({ success: true, members: members ? Array.from(members) : [] });
+  });
+
+  // ============ DISCONNECT ============
+  socket.on('disconnect', async () => {
     if (currentUser) {
+      await removeFromVoice(currentUser.toLowerCase());
       onlineUsers.delete(currentUser.toLowerCase());
       io.emit('userOffline', { name: currentUser });
       console.log(`User disconnected: ${currentUser}`);
