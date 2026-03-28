@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import SimplePeer from 'simple-peer';
+import { LocalNotifications } from '@capacitor/local-notifications';
 import cameraIcon from '../assets/camera.png';
 import emojiIcon from '../assets/happy.png';
 import gifIcon from '../assets/gif.png';
@@ -148,6 +149,10 @@ function App() {
   const messagesEndRef = useRef(null);
   const currentChatRef = useRef(null);
   const soundEnabledRef = useRef(true);
+  const contactsRef = useRef([]);
+  const groupsRef = useRef([]);
+  const appInForegroundRef = useRef(true);
+  const notificationUnreadRef = useRef({});
   const fileInputRef = useRef(null);
   const avatarInputRef = useRef(null);
   const groupAvatarInputRef = useRef(null);
@@ -179,6 +184,90 @@ function App() {
   useEffect(() => {
     soundEnabledRef.current = soundEnabled;
   }, [soundEnabled]);
+
+  useEffect(() => {
+    contactsRef.current = contacts;
+  }, [contacts]);
+
+  useEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
+
+  // App foreground/background tracking and notification setup
+  useEffect(() => {
+    if (!isCapacitor) return;
+
+    const setupNotifications = async () => {
+      try {
+        const perm = await LocalNotifications.checkPermissions();
+        if (perm.display !== 'granted') {
+          await LocalNotifications.requestPermissions();
+        }
+        await LocalNotifications.createChannel({
+          id: 'messages',
+          name: 'Messages',
+          description: 'New message notifications',
+          importance: 4,
+          visibility: 1,
+          sound: 'default',
+        });
+      } catch (e) {}
+    };
+    setupNotifications();
+
+    const onVisibilityChange = () => {
+      appInForegroundRef.current = !document.hidden;
+      if (!document.hidden) {
+        // Clear all notifications when returning to app
+        LocalNotifications.removeAllDeliveredNotifications().catch(() => {});
+        notificationUnreadRef.current = {};
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, []);
+
+  const showMessageNotification = useCallback(async (chatId, message) => {
+    if (!isCapacitor || appInForegroundRef.current) return;
+    try {
+      // Build notification title from chat info
+      let title;
+      if (chatId.startsWith('group_')) {
+        const groupId = chatId.replace('group_', '');
+        const group = groupsRef.current.find(g => g.groupId === groupId || g._id === groupId);
+        title = group ? group.name : 'Group Chat';
+      } else {
+        title = message.sender || 'Message';
+      }
+
+      // Track unread per thread
+      notificationUnreadRef.current[chatId] = (notificationUnreadRef.current[chatId] || 0) + 1;
+      const count = notificationUnreadRef.current[chatId];
+
+      // Use a stable numeric ID per chatId for notification grouping/replacement
+      let notifId = 0;
+      for (let i = 0; i < chatId.length; i++) {
+        notifId = ((notifId << 5) - notifId + chatId.charCodeAt(i)) | 0;
+      }
+      notifId = Math.abs(notifId) % 2147483647;
+
+      const body = count === 1
+        ? (message.text || (message.image ? 'Sent an image' : 'New message'))
+        : `${count} new messages`;
+
+      await LocalNotifications.schedule({
+        notifications: [{
+          id: notifId,
+          title,
+          body,
+          channelId: 'messages',
+          group: 'messages',
+          groupSummary: false,
+          autoCancel: true,
+        }],
+      });
+    } catch (e) {}
+  }, []);
 
   const playNotificationSound = useCallback(() => {
     try {
@@ -349,6 +438,7 @@ function App() {
           ...prev,
           [chatId]: (prev[chatId] || 0) + 1
         }));
+        showMessageNotification(chatId, message);
       }
       // Auto mark seen if this chat is currently open
       if (!message.sent && currentChatRef.current?.id === chatId) {
