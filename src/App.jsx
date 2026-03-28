@@ -2130,6 +2130,9 @@ function App() {
                 <div className="supreme-chat-header">
                   <h3>{supremeActiveChat.name}</h3>
                   <span className="supreme-space-meta">{supremeActiveChat.spaceName} admin</span>
+                  <button className="supreme-call-btn" onClick={() => startCall(supremeActiveChat.name)} title="Voice call" disabled={!!activeCall}>
+                    &#128222;
+                  </button>
                 </div>
                 <div className="supreme-messages supreme-dm-messages">
                   {(supremeMessages[supremeActiveChat.id] || []).map((msg, idx) => (
@@ -2282,6 +2285,38 @@ function App() {
             )}
           </div>
         </div>
+
+        {/* Incoming Call Modal */}
+        {incomingCall && (
+          <div className="call-overlay">
+            <div className="call-modal incoming">
+              <div className="call-avatar">{incomingCall.from.charAt(0).toUpperCase()}</div>
+              <div className="call-info">
+                <div className="call-name">{incomingCall.from}</div>
+                <div className="call-status">Incoming voice call...</div>
+              </div>
+              <div className="call-actions">
+                <button className="call-answer-btn" onClick={answerCall}>Accept</button>
+                <button className="call-reject-btn" onClick={rejectCall}>Decline</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Active Call Bar */}
+        {activeCall && (
+          <div className="active-call-bar">
+            <div className="call-bar-info">
+              <span className="call-bar-icon">&#128222;</span>
+              <span className="call-bar-name">{activeCall.user}</span>
+              <span className="call-bar-status">{activeCall.type === 'outgoing' ? 'Calling...' : 'In call'}</span>
+            </div>
+            <div className="call-bar-controls">
+              <button className={`call-bar-mute ${isMuted ? 'muted' : ''}`} onClick={toggleCallMute}>{isMuted ? '\u{1F507}' : '\u{1F3A4}'}</button>
+              <button className="call-bar-end" onClick={endCall}>End</button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

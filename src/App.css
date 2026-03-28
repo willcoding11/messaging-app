@@ -3557,6 +3557,26 @@ body {
   color: #fff;
 }
 
+.supreme-call-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 1.3rem;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.supreme-call-btn:hover {
+  background: rgba(255,255,255,0.1);
+}
+
+.supreme-call-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
 .supreme-dm-messages {
   flex: 1;
   overflow-y: auto;
