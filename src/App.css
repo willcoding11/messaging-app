@@ -3517,6 +3517,19 @@ body {
   font-size: 0.75rem;
 }
 
+.supreme-msg-image {
+  display: block;
+  max-width: 300px;
+  max-height: 200px;
+  border-radius: 8px;
+  margin: 6px 0;
+  cursor: pointer;
+}
+
+.supreme-msg-image:hover {
+  opacity: 0.85;
+}
+
 .supreme-seen-info {
   display: block;
   font-size: 0.7rem;

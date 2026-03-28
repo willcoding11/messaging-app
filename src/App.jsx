@@ -2021,7 +2021,9 @@ function App() {
                     <div className="supreme-messages">
                       {supremeChatMessages.map((msg, idx) => (
                         <div key={idx} className="supreme-message">
-                          <strong>{msg.sender}:</strong> {msg.image ? '[Image]' : ''} {msg.text}
+                          <strong>{msg.sender}:</strong>
+                          {msg.image && <img src={msg.image} alt="Shared" className="supreme-msg-image" onClick={() => window.open(msg.image, '_blank')} />}
+                          {msg.text}
                           <span className="supreme-msg-time">{msg.time}</span>
                           {msg.seenBy && msg.seenBy.length > 0 && (
                             <span className="supreme-seen-info">Seen by: {msg.seenBy.filter(n => n.toLowerCase() !== msg.sender?.toLowerCase()).join(', ') || 'sender only'}</span>
