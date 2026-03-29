@@ -18,7 +18,12 @@
       "Bash(sed \"s/.*socket\\\\.on\\(''''//\")",
       "Bash(sed \"s/'''',.*//\")",
       "Bash(sed \"s/.*socket.on.//\")",
-      "Bash(npx cap:*)"
+      "Bash(npx cap:*)",
+      "Bash(./gradlew assembleDebug)",
+      "Bash(java -version)",
+      "Bash(where java:*)",
+      "Bash(JAVA_HOME=\"C:/Program Files/Eclipse Adoptium/jdk-17.0.12.7-hotspot\" ./gradlew assembleDebug)",
+      "Bash(JAVA_HOME=\"C:/Program Files/Eclipse Adoptium/jdk-25.0.1.8-hotspot\" ./gradlew assembleDebug)"
     ]
   }
 }

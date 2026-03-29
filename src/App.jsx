@@ -135,6 +135,7 @@ function App() {
   const [supremeMessages, setSupremeMessages] = useState({});
   const [supremeActiveChat, setSupremeActiveChat] = useState(null);
   const [supremeMsgInput, setSupremeMsgInput] = useState('');
+  const [showSupremeGamePicker, setShowSupremeGamePicker] = useState(false);
 
   // Voice chat state
   const [voiceChannel, setVoiceChannel] = useState(null);
@@ -659,6 +660,20 @@ function App() {
           return { ...game, chatId };
         }
         return prev;
+      });
+
+      // Also update supreme messages
+      setSupremeMessages(prev => {
+        if (!prev[chatId]) return prev;
+        return {
+          ...prev,
+          [chatId]: prev[chatId].map(msg => {
+            if (msg.game && msg.game.id === gameId) {
+              return { ...msg, game };
+            }
+            return msg;
+          })
+        };
       });
     });
 
@@ -1805,8 +1820,12 @@ function App() {
   ];
 
   const sendGameInvite = (gameType) => {
-    if (!currentChat) return;
-    if (currentChat.type === 'group') {
+    // Support both regular chat and supreme chat contexts
+    const isSupreme = userRole === 'supreme' && supremeActiveChat;
+    const chatTarget = isSupreme ? supremeActiveChat : currentChat;
+
+    if (!chatTarget) return;
+    if (!isSupreme && chatTarget.type === 'group') {
       showToast('Games are only available in direct messages', 'error');
       setShowGamePicker(false);
       return;
@@ -1823,7 +1842,7 @@ function App() {
         type: gameType,
         name: game.name,
         icon: game.icon,
-        players: [userName, currentChat.name],
+        players: [userName, chatTarget.name],
         currentTurn: userName,
         state: initializeGameState(gameType),
         status: 'active',
@@ -1834,18 +1853,22 @@ function App() {
     };
 
     socket.emit('sendMessage', {
-      chatId: currentChat.id,
-      chatType: currentChat.type,
-      recipient: currentChat.name,
+      chatId: chatTarget.id,
+      chatType: 'contact',
+      recipient: chatTarget.name,
       message: gameMessage
     });
 
-    setShowGamePicker(false);
+    if (isSupreme) {
+      setShowSupremeGamePicker(false);
+    } else {
+      setShowGamePicker(false);
+    }
     showToast(`Starting ${game.name}...`, 'info');
   };
 
   const startRematch = () => {
-    if (!activeGame || !currentChat) return;
+    if (!activeGame) return;
     const gameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const game = gameTypes.find(g => g.id === activeGame.type);
 
@@ -2231,6 +2254,22 @@ function App() {
                     <div key={idx} className={`supreme-dm-msg ${msg.sent ? 'sent' : 'received'}`}>
                       <div className="supreme-dm-bubble">
                         {msg.image && <img src={msg.image} alt="Shared" className="message-image" />}
+                        {msg.game && (
+                          <div className={`game-invite ${msg.game.status}`}>
+                            <div className="game-invite-icon">{msg.game.icon}</div>
+                            <div className="game-invite-info">
+                              <div className="game-invite-name">{msg.game.name}</div>
+                              <div className="game-invite-status">
+                                {msg.game.status === 'finished'
+                                  ? msg.game.winner === 'draw' ? "It's a draw!" : `${msg.game.winner} wins!`
+                                  : `${msg.game.currentTurn}'s turn`}
+                              </div>
+                            </div>
+                            <button className="game-invite-btn" onClick={() => openGame(msg.game, supremeActiveChat.id)}>
+                              {msg.game.status === 'active' ? `Start ${msg.game.name}` : 'View Result'}
+                            </button>
+                          </div>
+                        )}
                         {msg.text && <span>{msg.text}</span>}
                       </div>
                       <div className="supreme-dm-time">
@@ -2247,6 +2286,25 @@ function App() {
                   )}
                 </div>
                 <div className="supreme-dm-input">
+                  <div className="supreme-game-picker-wrapper">
+                    <button className="supreme-game-btn" onClick={() => setShowSupremeGamePicker(!showSupremeGamePicker)} title="Games">🎮</button>
+                    {showSupremeGamePicker && (
+                      <div className="picker-popup game-picker supreme-game-picker-popup">
+                        <div className="picker-header">
+                          <span>Games</span>
+                          <button className="picker-close" onClick={() => setShowSupremeGamePicker(false)}>×</button>
+                        </div>
+                        <div className="game-list">
+                          {gameTypes.map(game => (
+                            <div key={game.id} className="game-option" onClick={() => sendGameInvite(game.id)}>
+                              <span className="game-option-icon">{game.icon}</span>
+                              <span className="game-option-name">{game.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={supremeMsgInput}
@@ -2306,6 +2364,22 @@ function App() {
                         <div key={idx} className="supreme-message">
                           <strong>{msg.sender}:</strong>
                           {msg.image && <img src={msg.image} alt="Shared" className="supreme-msg-image" onClick={() => window.open(msg.image, '_blank')} />}
+                          {msg.game && (
+                            <div className={`game-invite ${msg.game.status}`} style={{ margin: '6px 0' }}>
+                              <div className="game-invite-icon">{msg.game.icon}</div>
+                              <div className="game-invite-info">
+                                <div className="game-invite-name">{msg.game.name}</div>
+                                <div className="game-invite-status">
+                                  {msg.game.status === 'finished'
+                                    ? msg.game.winner === 'draw' ? "It's a draw!" : `${msg.game.winner} wins!`
+                                    : `${msg.game.currentTurn}'s turn`}
+                                </div>
+                              </div>
+                              <button className="game-invite-btn" onClick={() => openGame(msg.game, supremeViewChat)}>
+                                View Game
+                              </button>
+                            </div>
+                          )}
                           {msg.text}
                           <span className="supreme-msg-time">{msg.time}</span>
                           {msg.seenBy && msg.seenBy.length > 0 && (
@@ -2377,6 +2451,301 @@ function App() {
             )}
           </div>
         </div>
+
+        {/* Game Modal */}
+        {activeGame && (
+          <div className="modal-overlay" onClick={() => setActiveGame(null)}>
+            <div className="modal game-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="game-modal-header">
+                <h3>{activeGame.name}</h3>
+                <button className="picker-close" onClick={() => setActiveGame(null)}>×</button>
+              </div>
+              <div className="game-players">
+                <span className={activeGame.currentTurn?.toLowerCase() === activeGame.players[0]?.toLowerCase() ? 'active-player' : ''}>{activeGame.players[0]} {activeGame.type === 'tictactoe' || activeGame.type === 'connect4' ? '(X)' : ''}</span>
+                <span>vs</span>
+                <span className={activeGame.currentTurn?.toLowerCase() === activeGame.players[1]?.toLowerCase() ? 'active-player' : ''}>{activeGame.players[1]} {activeGame.type === 'tictactoe' || activeGame.type === 'connect4' ? '(O)' : ''}</span>
+              </div>
+
+              {activeGame.status === 'finished' && (
+                <div className={`game-result-banner ${activeGame.winner === 'draw' ? 'draw' : activeGame.winner?.toLowerCase() === userName.toLowerCase() ? 'won' : 'lost'}`}>
+                  {activeGame.winner === 'draw' ? "It's a Draw!" : activeGame.winner?.toLowerCase() === userName.toLowerCase() ? "You Won!" : "You Lost!"}
+                </div>
+              )}
+
+              {activeGame.type === 'tictactoe' && (
+                <div className="tictactoe-board">
+                  {activeGame.state.board.map((cell, idx) => (
+                    <button key={idx} className={`tictactoe-cell ${cell}`} onClick={() => makeGameMove(idx)} disabled={activeGame.status === 'finished' || cell !== null}>{cell}</button>
+                  ))}
+                </div>
+              )}
+
+              {activeGame.type === 'connect4' && (
+                <div className="connect4-board">
+                  <div className="connect4-columns">
+                    {[0,1,2,3,4,5,6].map(col => (<button key={col} className="connect4-drop" onClick={() => makeGameMove(col)} disabled={activeGame.status === 'finished'}>↓</button>))}
+                  </div>
+                  <div className="connect4-grid">
+                    {activeGame.state.board.map((cell, idx) => (<div key={idx} className={`connect4-cell ${cell ? (cell === 'X' ? 'red' : 'yellow') : ''}`} />))}
+                  </div>
+                </div>
+              )}
+
+              {activeGame.type === 'rps' && (
+                <div className="rps-game">
+                  {activeGame.status === 'active' ? (
+                    activeGame.state.choices[userName.toLowerCase()] ? (
+                      <div className="rps-waiting"><p>You chose: {activeGame.state.choices[userName.toLowerCase()]}</p><p>Waiting for opponent...</p></div>
+                    ) : (
+                      <div className="rps-choices">
+                        <button className="rps-btn" onClick={() => makeGameMove('rock')}><span>✊</span><span>Rock</span></button>
+                        <button className="rps-btn" onClick={() => makeGameMove('paper')}><span>✋</span><span>Paper</span></button>
+                        <button className="rps-btn" onClick={() => makeGameMove('scissors')}><span>✌️</span><span>Scissors</span></button>
+                      </div>
+                    )
+                  ) : (
+                    <div className="rps-result">
+                      <div className="rps-final">
+                        <div className="rps-player-choice">
+                          <span>{activeGame.players[0]}</span>
+                          <span className="rps-choice-icon">
+                            {activeGame.state.choices[activeGame.players[0].toLowerCase()] === 'rock' && '✊'}
+                            {activeGame.state.choices[activeGame.players[0].toLowerCase()] === 'paper' && '✋'}
+                            {activeGame.state.choices[activeGame.players[0].toLowerCase()] === 'scissors' && '✌️'}
+                          </span>
+                        </div>
+                        <div className="rps-vs">VS</div>
+                        <div className="rps-player-choice">
+                          <span>{activeGame.players[1]}</span>
+                          <span className="rps-choice-icon">
+                            {activeGame.state.choices[activeGame.players[1].toLowerCase()] === 'rock' && '✊'}
+                            {activeGame.state.choices[activeGame.players[1].toLowerCase()] === 'paper' && '✋'}
+                            {activeGame.state.choices[activeGame.players[1].toLowerCase()] === 'scissors' && '✌️'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeGame.type === 'coinflip' && (
+                <div className="coinflip-game">
+                  {activeGame.status === 'active' ? (
+                    activeGame.state.calls[userName.toLowerCase()] ? (
+                      <div className="coinflip-waiting"><p>You called: <strong>{activeGame.state.calls[userName.toLowerCase()]}</strong></p><p>Waiting for opponent...</p></div>
+                    ) : (
+                      <div className="coinflip-choices">
+                        <p>Call it!</p>
+                        <div className="coinflip-buttons">
+                          <button className="coinflip-btn" onClick={() => makeGameMove('heads')}><span>🪙</span><span>Heads</span></button>
+                          <button className="coinflip-btn" onClick={() => makeGameMove('tails')}><span>🪙</span><span>Tails</span></button>
+                        </div>
+                      </div>
+                    )
+                  ) : (
+                    <div className="coinflip-result">
+                      <div className="coinflip-coin"><span>🪙</span><p>The coin landed on: <strong>{activeGame.state.result}</strong></p></div>
+                      <div className="coinflip-final">
+                        <div className="coinflip-player-call"><span>{activeGame.players[0]}</span><span className="coinflip-call">{activeGame.state.calls[activeGame.players[0].toLowerCase()]}</span></div>
+                        <div className="coinflip-vs">VS</div>
+                        <div className="coinflip-player-call"><span>{activeGame.players[1]}</span><span className="coinflip-call">{activeGame.state.calls[activeGame.players[1].toLowerCase()]}</span></div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeGame.type === 'numberguess' && (
+                <div className="numberguess-game">
+                  {(() => {
+                    const pickerIndex = activeGame.state.picker;
+                    const guesserIndex = pickerIndex === 0 ? 1 : 0;
+                    const isPicker = activeGame.players[pickerIndex].toLowerCase() === userName.toLowerCase();
+                    const pickerName = activeGame.players[pickerIndex];
+                    const guesserName = activeGame.players[guesserIndex];
+
+                    if (activeGame.status === 'active') {
+                      if (isPicker) {
+                        if (activeGame.state.secretNumber === null) {
+                          return (
+                            <div className="numberguess-picker">
+                              <p>You're the picker! Choose a number (1-50):</p>
+                              <div className="numberguess-grid">
+                                {Array.from({ length: 50 }, (_, i) => i + 1).map(num => (
+                                  <button key={num} className="numberguess-btn" onClick={() => makeGameMove(num)}>{num}</button>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div className="numberguess-watching">
+                              <p>Your number: <strong>{activeGame.state.secretNumber}</strong></p>
+                              <p className="numberguess-watching-label">{guesserName}'s guesses:</p>
+                              {activeGame.state.guesses.length === 0 ? (
+                                <p className="numberguess-waiting">Waiting for {guesserName} to guess...</p>
+                              ) : (
+                                <div className="numberguess-guess-list">
+                                  {activeGame.state.guesses.map((guess, idx) => (
+                                    <span key={idx} className={`numberguess-guess ${guess < activeGame.state.secretNumber ? 'low' : 'high'}`}>
+                                      {guess} {guess < activeGame.state.secretNumber ? '↑' : '↓'}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+                      } else {
+                        if (activeGame.state.secretNumber === null) {
+                          return (<div className="numberguess-waiting-picker"><p>Waiting for {pickerName} to pick a number...</p></div>);
+                        } else {
+                          return (
+                            <div className="numberguess-guesser">
+                              <p>Guess the number (1-50)!</p>
+                              {activeGame.state.guesses.length > 0 && (
+                                <div className="numberguess-hint">
+                                  <span>Last guess: <strong>{activeGame.state.guesses[activeGame.state.guesses.length - 1]}</strong></span>
+                                  <span className={`numberguess-hint-text ${activeGame.state.hint}`}>Go {activeGame.state.hint}!</span>
+                                </div>
+                              )}
+                              <div className="numberguess-grid">
+                                {Array.from({ length: 50 }, (_, i) => i + 1).map(num => (
+                                  <button key={num} className={`numberguess-btn ${activeGame.state.guesses.includes(num) ? 'guessed' : ''}`} onClick={() => makeGameMove(num)} disabled={activeGame.state.guesses.includes(num)}>{num}</button>
+                                ))}
+                              </div>
+                              <p className="numberguess-attempts">Attempts: {activeGame.state.guesses.length}</p>
+                            </div>
+                          );
+                        }
+                      }
+                    } else {
+                      return (
+                        <div className="numberguess-result">
+                          <p className="numberguess-secret">The number was: <strong>{activeGame.state.secretNumber}</strong></p>
+                          <p className="numberguess-attempts-final">{guesserName} guessed it in {activeGame.state.guesses.length} {activeGame.state.guesses.length === 1 ? 'try' : 'tries'}!</p>
+                          <div className="numberguess-all-guesses">
+                            {activeGame.state.guesses.map((guess, idx) => (
+                              <span key={idx} className={`numberguess-guess ${guess === activeGame.state.secretNumber ? 'correct' : guess < activeGame.state.secretNumber ? 'low' : 'high'}`}>{guess}</span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+                  })()}
+                </div>
+              )}
+
+              {activeGame.type === 'chopsticks' && (
+                <div className="chopsticks-game">
+                  {(() => {
+                    const myIndex = activeGame.players[0].toLowerCase() === userName.toLowerCase() ? 0 : 1;
+                    const opponentIndex = myIndex === 0 ? 1 : 0;
+                    const myHands = activeGame.state.hands[myIndex];
+                    const opponentHands = activeGame.state.hands[opponentIndex];
+                    const isMyTurn = activeGame.currentTurn?.toLowerCase() === userName.toLowerCase();
+                    const [selectedHand, setSelectedHandLocal] = [activeGame.state.selectedHand, (hand) => {
+                      setActiveGame(prev => ({ ...prev, state: { ...prev.state, selectedHand: hand } }));
+                    }];
+
+                    const renderHand = (fingers) => {
+                      if (fingers === 0) return '✊';
+                      const fingerEmojis = ['✊', '☝️', '✌️', '🤟', '🖐️'];
+                      return fingerEmojis[fingers] || '🖐️';
+                    };
+
+                    const canSplit = () => {
+                      const total = myHands.left + myHands.right;
+                      if (total === 0) return false;
+                      for (let l = 0; l <= Math.min(4, total); l++) {
+                        const r = total - l;
+                        if (r >= 0 && r <= 4 && (l !== myHands.left || r !== myHands.right)) return true;
+                      }
+                      return false;
+                    };
+
+                    const getValidSplits = () => {
+                      const total = myHands.left + myHands.right;
+                      const splits = [];
+                      for (let l = 0; l <= Math.min(4, total); l++) {
+                        const r = total - l;
+                        if (r >= 0 && r <= 4 && (l !== myHands.left || r !== myHands.right)) splits.push({ left: l, right: r });
+                      }
+                      return splits;
+                    };
+
+                    return (
+                      <>
+                        <div className="chopsticks-player opponent">
+                          <div className="chopsticks-player-name">{activeGame.players[opponentIndex]}</div>
+                          <div className="chopsticks-hands">
+                            <div className={`chopsticks-hand ${opponentHands.left === 0 ? 'out' : ''} ${selectedHand && isMyTurn ? 'targetable' : ''}`}
+                              onClick={() => { if (selectedHand && isMyTurn && opponentHands.left > 0 && activeGame.status === 'active') makeGameMove({ type: 'tap', myHand: selectedHand, theirHand: 'left' }); }}>
+                              <span className="hand-emoji">{renderHand(opponentHands.left)}</span>
+                              <span className="finger-count">{opponentHands.left}</span>
+                            </div>
+                            <div className={`chopsticks-hand ${opponentHands.right === 0 ? 'out' : ''} ${selectedHand && isMyTurn ? 'targetable' : ''}`}
+                              onClick={() => { if (selectedHand && isMyTurn && opponentHands.right > 0 && activeGame.status === 'active') makeGameMove({ type: 'tap', myHand: selectedHand, theirHand: 'right' }); }}>
+                              <span className="hand-emoji">{renderHand(opponentHands.right)}</span>
+                              <span className="finger-count">{opponentHands.right}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="chopsticks-vs">VS</div>
+                        <div className="chopsticks-player me">
+                          <div className="chopsticks-player-name">{activeGame.players[myIndex]} (You)</div>
+                          <div className="chopsticks-hands">
+                            <div className={`chopsticks-hand ${myHands.left === 0 ? 'out' : ''} ${selectedHand === 'left' ? 'selected' : ''} ${isMyTurn && myHands.left > 0 ? 'selectable' : ''}`}
+                              onClick={() => { if (isMyTurn && myHands.left > 0 && activeGame.status === 'active') setSelectedHandLocal(selectedHand === 'left' ? null : 'left'); }}>
+                              <span className="hand-emoji">{renderHand(myHands.left)}</span>
+                              <span className="finger-count">{myHands.left}</span>
+                            </div>
+                            <div className={`chopsticks-hand ${myHands.right === 0 ? 'out' : ''} ${selectedHand === 'right' ? 'selected' : ''} ${isMyTurn && myHands.right > 0 ? 'selectable' : ''}`}
+                              onClick={() => { if (isMyTurn && myHands.right > 0 && activeGame.status === 'active') setSelectedHandLocal(selectedHand === 'right' ? null : 'right'); }}>
+                              <span className="hand-emoji">{renderHand(myHands.right)}</span>
+                              <span className="finger-count">{myHands.right}</span>
+                            </div>
+                          </div>
+                        </div>
+                        {activeGame.status === 'active' && isMyTurn && (
+                          <div className="chopsticks-actions">
+                            {selectedHand ? (
+                              <p className="chopsticks-instruction">Tap an opponent's hand, or click your hand again to deselect</p>
+                            ) : (
+                              <p className="chopsticks-instruction">Select one of your hands to tap, or split your fingers</p>
+                            )}
+                            {canSplit() && !selectedHand && (
+                              <div className="chopsticks-split">
+                                <span>Split:</span>
+                                {getValidSplits().map((split, idx) => (
+                                  <button key={idx} className="chopsticks-split-btn" onClick={() => makeGameMove({ type: 'split', left: split.left, right: split.right })}>{split.left}-{split.right}</button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {activeGame.status === 'active' && (
+                <div className="game-turn-indicator">
+                  {!['rps', 'coinflip', 'numberguess'].includes(activeGame.type) && (
+                    activeGame.currentTurn.toLowerCase() === userName.toLowerCase() ? "Your turn!" : `Waiting for ${activeGame.currentTurn}...`
+                  )}
+                </div>
+              )}
+
+              <div className="game-modal-actions">
+                <button className="game-btn quit" onClick={() => setActiveGame(null)}>Quit</button>
+                {activeGame.status === 'finished' && (<button className="game-btn rematch" onClick={startRematch}>Rematch</button>)}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Incoming Call Modal */}
         {incomingCall && (

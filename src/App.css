@@ -3664,6 +3664,33 @@ body {
   background: #00a5bb;
 }
 
+.supreme-game-picker-wrapper {
+  position: relative;
+}
+
+.supreme-game-btn {
+  width: 42px;
+  height: 42px;
+  border: 1px solid #333;
+  border-radius: 50%;
+  background: #1a1a2e;
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s;
+}
+
+.supreme-game-btn:hover {
+  border-color: #00bcd4;
+}
+
+.supreme-game-picker-popup {
+  bottom: 50px;
+  left: 0;
+}
+
 .modal-btn.danger {
   background: #dc3545;
   color: white;
