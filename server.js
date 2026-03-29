@@ -1061,6 +1061,15 @@ io.on('connection', (socket) => {
       // Delete all groups in space
       const groups = await Group.find({ spaceCode });
       for (const group of groups) {
+        // Clean up voice channels for this group
+        const voiceMembers = voiceChannels.get(group.groupId);
+        if (voiceMembers) {
+          for (const member of voiceMembers) {
+            userVoiceChannel.delete(member);
+          }
+          voiceChannels.delete(group.groupId);
+          await broadcastVoiceState(group.groupId);
+        }
         await Message.deleteMany({ chatId: `group_${group.groupId}` });
       }
       await Group.deleteMany({ spaceCode });
@@ -1174,6 +1183,9 @@ io.on('connection', (socket) => {
       if (adminSocket) {
         io.to(adminSocket).emit('contactRemoved', { name: targetName });
       }
+
+      // Remove from voice channel if active
+      await removeFromVoice(targetLower);
 
       // Kick them if online
       const targetSocket = onlineUsers.get(targetLower);
@@ -1791,6 +1803,8 @@ io.on('connection', (socket) => {
           userVoiceChannel.delete(member);
         }
         voiceChannels.delete(groupId);
+        // Notify clients that voice channel is empty so they clean up their peers
+        await broadcastVoiceState(groupId);
       }
 
       group.members.forEach(memberName => {

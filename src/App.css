@@ -4118,6 +4118,29 @@ body {
   opacity: 0.6;
 }
 
+.voice-member-avatar.speaking {
+  box-shadow: 0 0 0 2px #43b581, 0 0 8px rgba(67, 181, 129, 0.5);
+  transition: box-shadow 0.15s ease;
+}
+
+.voice-member.speaking {
+  background: rgba(67, 181, 129, 0.12);
+  transition: background 0.15s ease;
+}
+
+[data-theme="dark"] .voice-member.speaking {
+  background: rgba(67, 181, 129, 0.18);
+}
+
+.voice-member-avatar:not(.speaking) {
+  box-shadow: none;
+  transition: box-shadow 0.3s ease;
+}
+
+.voice-member:not(.speaking) {
+  transition: background 0.3s ease;
+}
+
 .voice-controls {
   display: flex;
   gap: 8px;
