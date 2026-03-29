@@ -3875,19 +3875,155 @@ body {
   flex: 1;
 }
 
+/* Supreme back button */
+.supreme-back-btn {
+  display: none;
+  background: none;
+  border: none;
+  color: #00bcd4;
+  font-size: 1.4rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-right: 8px;
+  border-radius: 8px;
+}
+
+.supreme-back-btn:hover {
+  background: rgba(0, 188, 212, 0.1);
+}
+
 /* Supreme dashboard mobile */
 @media (max-width: 768px) {
+  .supreme-header {
+    padding: 10px 15px;
+  }
+
+  .supreme-header h2 {
+    font-size: 1rem;
+  }
+
+  .supreme-logo-small {
+    width: 32px;
+    height: 32px;
+    font-size: 1rem;
+  }
+
   .supreme-content {
     flex-direction: column;
   }
 
   .supreme-sidebar {
     width: 100%;
-    max-height: 200px;
+    flex: 1;
   }
 
   .supreme-main {
-    padding: 15px;
+    padding: 10px;
+    flex: 1;
+    width: 100%;
+  }
+
+  .supreme-hidden-mobile {
+    display: none !important;
+  }
+
+  .supreme-back-btn {
+    display: inline-flex;
+  }
+
+  .supreme-sidebar-header {
+    padding: 10px 15px;
+  }
+
+  .supreme-add-btn {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+  }
+
+  .supreme-space-item {
+    padding: 12px 15px;
+  }
+
+  .supreme-space-meta {
+    font-size: 0.75rem;
+  }
+
+  .supreme-detail-header {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .supreme-detail-header h3 {
+    font-size: 1.1rem;
+  }
+
+  .supreme-detail-meta {
+    font-size: 0.8rem;
+  }
+
+  .supreme-section {
+    margin-bottom: 12px;
+  }
+
+  .supreme-section h4 {
+    font-size: 0.9rem;
+    margin-bottom: 6px;
+  }
+
+  .supreme-member {
+    padding: 6px 0;
+    font-size: 0.9rem;
+  }
+
+  .supreme-chat-item {
+    padding: 10px 12px;
+    font-size: 0.9rem;
+  }
+
+  .supreme-chat-header {
+    padding: 10px 12px;
+  }
+
+  .supreme-chat-header h3 {
+    font-size: 1rem;
+  }
+
+  .supreme-dm-input {
+    padding: 10px;
+    gap: 6px;
+  }
+
+  .supreme-dm-input input {
+    padding: 10px 12px;
+    font-size: 0.9rem;
+  }
+
+  .supreme-dm-input button {
+    padding: 8px 14px;
+    font-size: 0.85rem;
+  }
+
+  .supreme-game-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+  }
+
+  .supreme-create-form {
+    padding: 10px;
+  }
+
+  .supreme-chat-active {
+    height: 100%;
+  }
+
+  .supreme-dm-messages {
+    flex: 1;
+  }
+
+  .modal-btn.danger {
+    padding: 6px 12px;
+    font-size: 0.8rem;
   }
 }
 

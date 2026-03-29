@@ -136,6 +136,7 @@ function App() {
   const [supremeActiveChat, setSupremeActiveChat] = useState(null);
   const [supremeMsgInput, setSupremeMsgInput] = useState('');
   const [showSupremeGamePicker, setShowSupremeGamePicker] = useState(false);
+  const [supremeMobileView, setSupremeMobileView] = useState('sidebar'); // 'sidebar' or 'main'
 
   // Voice chat state
   const [voiceChannel, setVoiceChannel] = useState(null);
@@ -2191,17 +2192,17 @@ function App() {
 
         <div className="supreme-content">
           {/* Spaces List */}
-          <div className="supreme-sidebar">
+          <div className={`supreme-sidebar ${supremeMobileView === 'main' ? 'supreme-hidden-mobile' : ''}`}>
             <div className="supreme-sidebar-header">
               <h3>Spaces ({allSpaces.length})</h3>
-              <button className="supreme-add-btn" onClick={() => { setShowCreateSpace(true); setSupremeError(''); }}>+ New Space</button>
+              <button className="supreme-add-btn" onClick={() => { setShowCreateSpace(true); setSupremeError(''); setSupremeMobileView('main'); }}>+ New Space</button>
             </div>
             <div className="supreme-space-list">
               {allSpaces.map(space => (
                 <div
                   key={space.code}
                   className={`supreme-space-item ${selectedSpace === space.code ? 'active' : ''}`}
-                  onClick={() => { viewSpaceDetails(space.code); setSupremeActiveChat(null); }}
+                  onClick={() => { viewSpaceDetails(space.code); setSupremeActiveChat(null); setSupremeMobileView('main'); }}
                 >
                   <div className="supreme-space-name">{space.name}</div>
                   <div className="supreme-space-meta">
@@ -2223,7 +2224,7 @@ function App() {
                 <div
                   key={admin.name}
                   className={`supreme-space-item ${supremeActiveChat?.name === admin.name ? 'active' : ''}`}
-                  onClick={() => { openSupremeChat(admin); setSelectedSpace(null); setSpaceDetails(null); setShowCreateSpace(false); }}
+                  onClick={() => { openSupremeChat(admin); setSelectedSpace(null); setSpaceDetails(null); setShowCreateSpace(false); setSupremeMobileView('main'); }}
                 >
                   <div className="supreme-space-name">
                     <span className={`supreme-status-dot ${admin.online ? 'online' : ''}`} style={{ marginRight: 6 }}></span>
@@ -2239,10 +2240,11 @@ function App() {
           </div>
 
           {/* Space Details / Chat */}
-          <div className="supreme-main">
+          <div className={`supreme-main ${supremeMobileView === 'sidebar' ? 'supreme-hidden-mobile' : ''}`}>
             {supremeActiveChat ? (
               <div className="supreme-chat-active">
                 <div className="supreme-chat-header">
+                  <button className="supreme-back-btn" onClick={() => { setSupremeActiveChat(null); setSupremeMobileView('sidebar'); }}>&#8592;</button>
                   <h3>{supremeActiveChat.name}</h3>
                   <span className="supreme-space-meta">{supremeActiveChat.spaceName} admin</span>
                   <button className="supreme-call-btn" onClick={() => startCall(supremeActiveChat.name)} title="Voice call" disabled={!!activeCall}>
@@ -2341,14 +2343,15 @@ function App() {
                 />
                 {supremeError && <div className="error-message">{supremeError}</div>}
                 <div className="modal-buttons">
-                  <button className="modal-btn cancel" onClick={() => { setShowCreateSpace(false); setSupremeError(''); }}>Cancel</button>
+                  <button className="modal-btn cancel" onClick={() => { setShowCreateSpace(false); setSupremeError(''); setSupremeMobileView('sidebar'); }}>Cancel</button>
                   <button className="modal-btn confirm" onClick={handleCreateSpace}>Create Space</button>
                 </div>
               </div>
             ) : spaceDetails ? (
               <div className="supreme-space-details">
                 <div className="supreme-detail-header">
-                  <div>
+                  <button className="supreme-back-btn" onClick={() => { setSelectedSpace(null); setSpaceDetails(null); setSupremeMobileView('sidebar'); }}>&#8592;</button>
+                  <div style={{ flex: 1 }}>
                     <h3>{spaceDetails.name}</h3>
                     <div className="supreme-detail-meta">Code: <strong>{spaceDetails.code}</strong> | Admin: <strong>{spaceDetails.adminName}</strong></div>
                   </div>
