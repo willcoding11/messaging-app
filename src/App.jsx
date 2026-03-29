@@ -163,6 +163,8 @@ function App() {
   const localStreamRef = useRef(null);
   const peersRef = useRef({});
   const audioElementsRef = useRef({});
+  const audioAnalysersRef = useRef({}); // username → { analyser, source, animFrame }
+  const [speakingUsers, setSpeakingUsers] = useState({});
   const voiceChannelRef = useRef(null);
   const callPeerRef = useRef(null);
   const callStreamRef = useRef(null);
@@ -299,6 +301,63 @@ function App() {
       audio.remove();
     }
   }, []);
+
+  const startSpeakingDetection = useCallback((stream, memberName) => {
+    const lowerName = memberName.toLowerCase();
+    // Clean up existing analyser for this user
+    if (audioAnalysersRef.current[lowerName]) {
+      stopSpeakingDetection(lowerName);
+    }
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.4;
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      const check = () => {
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+        const avg = sum / dataArray.length;
+        const isSpeaking = avg > 15;
+        setSpeakingUsers(prev => {
+          if (prev[lowerName] === isSpeaking) return prev;
+          return { ...prev, [lowerName]: isSpeaking };
+        });
+        audioAnalysersRef.current[lowerName].animFrame = requestAnimationFrame(check);
+      };
+
+      audioAnalysersRef.current[lowerName] = { audioCtx, source, analyser, animFrame: null };
+      check();
+    } catch (e) {
+      // AudioContext not supported - silently skip
+    }
+  }, []);
+
+  const stopSpeakingDetection = useCallback((lowerName) => {
+    const entry = audioAnalysersRef.current[lowerName];
+    if (entry) {
+      if (entry.animFrame) cancelAnimationFrame(entry.animFrame);
+      try { entry.source.disconnect(); } catch (e) {}
+      try { entry.audioCtx.close(); } catch (e) {}
+      delete audioAnalysersRef.current[lowerName];
+    }
+    setSpeakingUsers(prev => {
+      if (!(lowerName in prev)) return prev;
+      const next = { ...prev };
+      delete next[lowerName];
+      return next;
+    });
+  }, []);
+
+  const stopAllSpeakingDetection = useCallback(() => {
+    Object.keys(audioAnalysersRef.current).forEach(key => {
+      stopSpeakingDetection(key);
+    });
+  }, [stopSpeakingDetection]);
 
   const playNotificationSound = useCallback(() => {
     try {
@@ -569,12 +628,14 @@ function App() {
 
         peer.on('stream', remoteStream => {
           audioElementsRef.current[lowerFrom] = createAudioElement(remoteStream);
+          startSpeakingDetection(remoteStream, fromUser);
         });
 
         peer.on('close', () => {
           delete peersRef.current[lowerFrom];
           removeAudioElement(audioElementsRef.current[lowerFrom]);
           delete audioElementsRef.current[lowerFrom];
+          stopSpeakingDetection(lowerFrom);
         });
 
         peer.on('error', () => {
@@ -582,6 +643,7 @@ function App() {
           delete peersRef.current[lowerFrom];
           removeAudioElement(audioElementsRef.current[lowerFrom]);
           delete audioElementsRef.current[lowerFrom];
+          stopSpeakingDetection(lowerFrom);
         });
 
         peersRef.current[lowerFrom] = peer;
@@ -991,6 +1053,9 @@ function App() {
           setVoiceChannel(groupId);
           setVoiceConnecting(false);
 
+          // Start speaking detection for local user
+          startSpeakingDetection(stream, userName);
+
           // Create peer connections to existing members
           const myName = userName.toLowerCase();
           response.members.forEach(member => {
@@ -1020,6 +1085,9 @@ function App() {
     if (groupId) {
       socket.emit('leaveVoice', { groupId });
     }
+
+    // Stop all speaking detection
+    stopAllSpeakingDetection();
 
     // Stop local stream
     if (localStreamRef.current) {
@@ -1066,12 +1134,14 @@ function App() {
 
     peer.on('stream', remoteStream => {
       audioElementsRef.current[lowerTarget] = createAudioElement(remoteStream);
+      startSpeakingDetection(remoteStream, targetUser);
     });
 
     peer.on('close', () => {
       delete peersRef.current[lowerTarget];
       removeAudioElement(audioElementsRef.current[lowerTarget]);
       delete audioElementsRef.current[lowerTarget];
+      stopSpeakingDetection(lowerTarget);
     });
 
     peer.on('error', () => {
@@ -1079,6 +1149,7 @@ function App() {
       delete peersRef.current[lowerTarget];
       removeAudioElement(audioElementsRef.current[lowerTarget]);
       delete audioElementsRef.current[lowerTarget];
+      stopSpeakingDetection(lowerTarget);
     });
 
     peersRef.current[lowerTarget] = peer;
@@ -2980,8 +3051,8 @@ function App() {
                 {(voiceMembers[currentChat.groupId] || []).length > 0 && (
                   <div className="voice-members-list">
                     {(voiceMembers[currentChat.groupId] || []).map(member => (
-                      <div key={member} className="voice-member">
-                        <div className="voice-member-avatar">
+                      <div key={member} className={`voice-member ${speakingUsers[member.toLowerCase()] ? 'speaking' : ''}`}>
+                        <div className={`voice-member-avatar ${speakingUsers[member.toLowerCase()] ? 'speaking' : ''}`}>
                           {getMemberAvatar(member) ?
                             <img src={getMemberAvatar(member)} alt={member} /> :
                             member.charAt(0).toUpperCase()}
