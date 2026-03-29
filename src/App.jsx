@@ -294,6 +294,7 @@ function App() {
 
   const removeAudioElement = useCallback((audio) => {
     if (audio) {
+      audio.pause();
       audio.srcObject = null;
       audio.remove();
     }
@@ -579,6 +580,8 @@ function App() {
         peer.on('error', () => {
           peer.destroy();
           delete peersRef.current[lowerFrom];
+          removeAudioElement(audioElementsRef.current[lowerFrom]);
+          delete audioElementsRef.current[lowerFrom];
         });
 
         peersRef.current[lowerFrom] = peer;
@@ -1074,6 +1077,8 @@ function App() {
     peer.on('error', () => {
       peer.destroy();
       delete peersRef.current[lowerTarget];
+      removeAudioElement(audioElementsRef.current[lowerTarget]);
+      delete audioElementsRef.current[lowerTarget];
     });
 
     peersRef.current[lowerTarget] = peer;
@@ -1108,6 +1113,12 @@ function App() {
 
       // Don't create peer yet - wait until callee answers to avoid signal race
     } catch (err) {
+      // Clean up stream and state if call setup fails
+      if (callStreamRef.current) {
+        callStreamRef.current.getTracks().forEach(t => t.stop());
+        callStreamRef.current = null;
+      }
+      setActiveCall(null);
       if (err.name === 'NotAllowedError') {
         showToast('Microphone access is required for calls', 'error');
       } else {
