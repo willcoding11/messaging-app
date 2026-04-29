@@ -191,6 +191,21 @@ function generateSpaceCode() {
   return Math.floor(10000 + Math.random() * 90000).toString();
 }
 
+// Find the main group for a space, with fallback for legacy/missing mainGroupId
+async function findMainGroup(space) {
+  let mainGroup = space.mainGroupId
+    ? await Group.findOne({ groupId: space.mainGroupId })
+    : null;
+  if (!mainGroup) {
+    mainGroup = await Group.findOne({ spaceCode: space.spaceCode, isMainGroup: true });
+    if (mainGroup && space.mainGroupId !== mainGroup.groupId) {
+      space.mainGroupId = mainGroup.groupId;
+      await space.save();
+    }
+  }
+  return mainGroup;
+}
+
 // Runtime state
 const onlineUsers = new Map();
 const voiceChannels = new Map();    // groupId → Set of lowercase usernames
@@ -451,7 +466,7 @@ io.on('connection', (socket) => {
         }
 
         // Make sure user is in main group
-        const mainGroup = await Group.findOne({ groupId: space.mainGroupId });
+        const mainGroup = await findMainGroup(space);
         if (mainGroup && !mainGroup.members.some(m => m.toLowerCase() === lowerName)) {
           mainGroup.members.push(trimmedName);
           await mainGroup.save();
@@ -508,7 +523,7 @@ io.on('connection', (socket) => {
         }
 
         // Add to main group
-        const mainGroup = await Group.findOne({ groupId: space.mainGroupId });
+        const mainGroup = await findMainGroup(space);
         if (mainGroup && !mainGroup.members.some(m => m.toLowerCase() === lowerName)) {
           mainGroup.members.push(trimmedName);
           await mainGroup.save();
@@ -678,11 +693,18 @@ io.on('connection', (socket) => {
         }
       }
 
-      // Get user's groups in this space
-      const userGroups = await Group.find({
-        spaceCode: user.spaceCode,
-        members: { $elemMatch: { $regex: new RegExp(`^${lowerName}$`, 'i') } }
-      });
+      // Self-heal: ensure user is in the main group of their space
+      const mainGroupForHeal = await findMainGroup(space);
+      if (mainGroupForHeal && !mainGroupForHeal.members.some(m => m.toLowerCase() === lowerName)) {
+        mainGroupForHeal.members.push(user.name);
+        await mainGroupForHeal.save();
+      }
+
+      // Get user's groups in this space (case-insensitive membership match)
+      const allSpaceGroups = await Group.find({ spaceCode: user.spaceCode });
+      const userGroups = allSpaceGroups.filter(g =>
+        g.members.some(m => m.toLowerCase() === lowerName)
+      );
 
       const groupsData = userGroups.map(g => ({
         id: g.groupId,
