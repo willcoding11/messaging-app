@@ -3213,7 +3213,7 @@ function App() {
                   )}
                 </div>
                 </div>
-                <input type="text" className="chat-input" value={messageInput} onChange={(e) => { setMessageInput(e.target.value); handleTyping(); }} onKeyDown={(e) => e.key === 'Enter' && !isUploading && sendMessage()} onPaste={handlePaste} placeholder={isUploading ? "Uploading image..." : "Type a message..."} disabled={isUploading} />
+                <textarea className="chat-input" rows={1} value={messageInput} onChange={(e) => { setMessageInput(e.target.value); handleTyping(); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px'; }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isUploading) { sendMessage(); e.target.style.height = 'auto'; } } }} onPaste={handlePaste} placeholder={isUploading ? "Uploading image..." : "Type a message..."} disabled={isUploading} />
                 <button className="send-btn" onClick={() => sendMessage()} disabled={isUploading}>Send</button>
               </div>
 

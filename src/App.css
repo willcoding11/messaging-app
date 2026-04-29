@@ -425,9 +425,16 @@ body {
   flex: 1;
   padding: 12px 15px;
   border: none;
-  border-radius: 25px;
+  border-radius: 20px;
   outline: none;
   font-size: 1rem;
+  resize: none;
+  font-family: inherit;
+  line-height: 1.4;
+  max-height: 150px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .send-btn {
@@ -789,7 +796,7 @@ body {
 .chat-input-row {
   display: flex;
   gap: 10px;
-  align-items: center;
+  align-items: flex-end;
   flex-wrap: wrap;
 }
 
