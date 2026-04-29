@@ -509,7 +509,7 @@ io.on('connection', (socket) => {
 
         // Add to main group
         const mainGroup = await Group.findOne({ groupId: space.mainGroupId });
-        if (mainGroup) {
+        if (mainGroup && !mainGroup.members.some(m => m.toLowerCase() === lowerName)) {
           mainGroup.members.push(trimmedName);
           await mainGroup.save();
 
@@ -529,27 +529,25 @@ io.on('connection', (socket) => {
               io.to(memberSocket).emit('groupUpdated', groupData);
             }
           });
-
-          // Notify about new contact for all space members
-          for (const memberLower of space.members) {
-            if (memberLower !== lowerName) {
-              const memberSocket = onlineUsers.get(memberLower);
-              if (memberSocket) {
-                const memberUser = await User.findOne({ nameLower: memberLower });
-                // Tell existing members about the new user
-                io.to(memberSocket).emit('contactAdded', {
-                  name: trimmedName,
-                  online: true,
-                  avatar: null
-                });
-              }
-            }
-          }
         }
 
         currentUser = trimmedName;
         currentUserRole = 'user';
         onlineUsers.set(lowerName, socket.id);
+
+        // Notify about new contact for all space members
+        for (const memberLower of space.members) {
+          if (memberLower !== lowerName) {
+            const memberSocket = onlineUsers.get(memberLower);
+            if (memberSocket) {
+              io.to(memberSocket).emit('contactAdded', {
+                name: trimmedName,
+                online: true,
+                avatar: null
+              });
+            }
+          }
+        }
 
         console.log(`New user created: ${trimmedName} (space: ${space.name})`);
         callback({
