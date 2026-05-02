@@ -771,9 +771,24 @@ function App() {
   useEffect(() => {
     const isNewChat = prevChatRef.current?.id !== currentChat?.id;
     prevChatRef.current = currentChat;
-    setTimeout(() => {
+
+    const scrollToBottom = () => {
       messagesEndRef.current?.scrollIntoView({ behavior: isNewChat ? 'instant' : 'smooth' });
-    }, isNewChat ? 50 : 0);
+    };
+
+    if (isNewChat) {
+      // Always scroll to bottom when switching chats
+      setTimeout(scrollToBottom, 50);
+      return;
+    }
+
+    // For new messages: only auto-scroll if user is near the bottom
+    const container = messagesEndRef.current?.parentElement;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom < 150) {
+      scrollToBottom();
+    }
   }, [messages, currentChat]);
 
   // ============ AUTH FUNCTIONS ============
